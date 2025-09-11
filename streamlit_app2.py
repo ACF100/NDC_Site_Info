@@ -1176,58 +1176,97 @@ class NDCToLocationMapper:
                     if fei_number and str(fei_number).strip() not in ['nan', '', 'None', '0000000', '0000000000']:
                         fei_clean = str(fei_number).strip()
                         
-                        # SPECIAL DEBUG FOR MAGNACHEM FEI (2024 warning letter)
-                        if fei_clean == "3003320065":
-                            st.write(f"🎯 SPECIAL DEBUG: Found Magnachem FEI {fei_clean}")
-                            st.write(f"🎯 This facility has a June 2024 warning letter - should be in API")
-                            st.write(f"🎯 Testing all API endpoints...")
+                        # SPECIAL DEBUG FOR INDOMETHACIN RECALL (Glenmark FEI)
+                        if fei_clean == "3008565058":
+                            st.write(f"🎯 SPECIAL DEBUG: Found Glenmark FEI {fei_clean}")
+                            st.write(f"🎯 This facility has a KNOWN RECALL for Indomethacin NDCs 68462-325-60 and 68462-325-90")
+                            st.write(f"🎯 Testing multiple search approaches...")
                             
-                            # Test each API endpoint individually
-                            drug_results = self.get_drug_inspections(fei_clean)
-                            device_results = self.get_device_inspections(fei_clean)
-                            food_results = self.get_food_inspections(fei_clean)
-                            warning_results = self.get_warning_letters(fei_clean)
-                            
-                            st.write(f"🎯 Drug enforcement: {len(drug_results)} records")
-                            st.write(f"🎯 Device enforcement: {len(device_results)} records")
-                            st.write(f"🎯 Food enforcement: {len(food_results)} records")
-                            st.write(f"🎯 Warning letters: {len(warning_results)} records")
-                            
-                            # Show raw API response for drug enforcement
-                            st.write(f"🎯 Testing raw API call...")
                             import requests
-                            test_url = f"https://api.fda.gov/drug/enforcement.json?search=fei_number:\"{fei_clean}\"&limit=10"
-                            st.write(f"🎯 API URL: {test_url}")
                             
+                            # Test 1: Search by FEI
+                            st.write(f"🎯 TEST 1: Search by FEI")
+                            test_url1 = f"https://api.fda.gov/drug/enforcement.json?search=fei_number:\"{fei_clean}\"&limit=10"
+                            st.write(f"🎯 URL: {test_url1}")
                             try:
-                                response = requests.get(test_url, timeout=10)
-                                st.write(f"🎯 Response status: {response.status_code}")
-                                if response.status_code == 200:
-                                    data = response.json()
-                                    st.write(f"🎯 Response data: {data}")
+                                response1 = requests.get(test_url1, timeout=10)
+                                st.write(f"🎯 Status: {response1.status_code}")
+                                if response1.status_code == 200:
+                                    data1 = response1.json()
+                                    st.write(f"🎯 Results: {len(data1.get('results', []))}")
                                 else:
-                                    st.write(f"🎯 Error response: {response.text}")
+                                    st.write(f"🎯 Error: {response1.text}")
                             except Exception as e:
-                                st.write(f"🎯 API Exception: {str(e)}")
+                                st.write(f"🎯 Exception: {str(e)}")
                             
-                            # Try searching by company name instead
-                            st.write(f"🎯 Trying search by company name...")
-                            company_url = f"https://api.fda.gov/drug/enforcement.json?search=recalling_firm:\"Magnachem\"&limit=10"
-                            st.write(f"🎯 Company search URL: {company_url}")
-                            
+                            # Test 2: Search by NDC
+                            st.write(f"🎯 TEST 2: Search by NDC")
+                            test_url2 = f"https://api.fda.gov/drug/enforcement.json?search=product_ndc:\"68462-325-90\"&limit=10"
+                            st.write(f"🎯 URL: {test_url2}")
                             try:
-                                response2 = requests.get(company_url, timeout=10)
-                                st.write(f"🎯 Company search status: {response2.status_code}")
+                                response2 = requests.get(test_url2, timeout=10)
+                                st.write(f"🎯 Status: {response2.status_code}")
                                 if response2.status_code == 200:
                                     data2 = response2.json()
-                                    results_count = len(data2.get('results', []))
-                                    st.write(f"🎯 Company search found: {results_count} records")
-                                    if results_count > 0:
-                                        st.write(f"🎯 Sample result: {data2['results'][0]}")
+                                    st.write(f"🎯 Results: {len(data2.get('results', []))}")
+                                    if data2.get('results'):
+                                        st.write(f"🎯 Sample: {data2['results'][0]}")
                                 else:
-                                    st.write(f"🎯 Company search error: {response2.text}")
+                                    st.write(f"🎯 Error: {response2.text}")
                             except Exception as e:
-                                st.write(f"🎯 Company search exception: {str(e)}")
+                                st.write(f"🎯 Exception: {str(e)}")
+                            
+                            # Test 3: Search by company name
+                            st.write(f"🎯 TEST 3: Search by company name")
+                            test_url3 = f"https://api.fda.gov/drug/enforcement.json?search=recalling_firm:\"Glenmark\"&limit=10"
+                            st.write(f"🎯 URL: {test_url3}")
+                            try:
+                                response3 = requests.get(test_url3, timeout=10)
+                                st.write(f"🎯 Status: {response3.status_code}")
+                                if response3.status_code == 200:
+                                    data3 = response3.json()
+                                    st.write(f"🎯 Results: {len(data3.get('results', []))}")
+                                    if data3.get('results'):
+                                        st.write(f"🎯 Sample: {data3['results'][0]}")
+                                else:
+                                    st.write(f"🎯 Error: {response3.text}")
+                            except Exception as e:
+                                st.write(f"🎯 Exception: {str(e)}")
+                            
+                            # Test 4: Search by product name
+                            st.write(f"🎯 TEST 4: Search by product name")
+                            test_url4 = f"https://api.fda.gov/drug/enforcement.json?search=product_description:\"Indomethacin\"&limit=10"
+                            st.write(f"🎯 URL: {test_url4}")
+                            try:
+                                response4 = requests.get(test_url4, timeout=10)
+                                st.write(f"🎯 Status: {response4.status_code}")
+                                if response4.status_code == 200:
+                                    data4 = response4.json()
+                                    st.write(f"🎯 Results: {len(data4.get('results', []))}")
+                                    if data4.get('results'):
+                                        st.write(f"🎯 Sample: {data4['results'][0]}")
+                                else:
+                                    st.write(f"🎯 Error: {response4.text}")
+                            except Exception as e:
+                                st.write(f"🎯 Exception: {str(e)}")
+                            
+                            # Test 5: General API test
+                            st.write(f"🎯 TEST 5: General API test (any recent records)")
+                            test_url5 = f"https://api.fda.gov/drug/enforcement.json?limit=5"
+                            st.write(f"🎯 URL: {test_url5}")
+                            try:
+                                response5 = requests.get(test_url5, timeout=10)
+                                st.write(f"🎯 Status: {response5.status_code}")
+                                if response5.status_code == 200:
+                                    data5 = response5.json()
+                                    st.write(f"🎯 Results: {len(data5.get('results', []))}")
+                                    if data5.get('results'):
+                                        st.write(f"🎯 Sample: {data5['results'][0]}")
+                                        st.write(f"🎯 API IS WORKING - contains enforcement data!")
+                                else:
+                                    st.write(f"🎯 Error: {response5.text}")
+                            except Exception as e:
+                                st.write(f"🎯 Exception: {str(e)}")
                         
                         # Look up inspections using the FEI number
                         inspections = self.get_facility_inspections(fei_clean)

@@ -1192,11 +1192,14 @@ class NDCToLocationMapper:
                 for establishment in establishments_info:
                     fei_number = establishment.get('fei_number')
                     if fei_number:
-                        inspections = self.get_facility_inspections(fei_number)
-                        inspection_summary = self.get_inspection_summary(inspections)
+                        #inspections = self.get_facility_inspections(fei_number)
+                        #inspection_summary = self.get_inspection_summary(inspections)
                         
-                        establishment['inspections'] = inspections[:10]
-                        establishment['inspection_summary'] = inspection_summary
+                        #establishment['inspections'] = inspections[:10]
+                        #establishment['inspection_summary'] = inspection_summary
+                        # ADD THESE TEMPORARY LINES:
+                        establishment['inspections'] = []
+                        establishment['inspection_summary'] = {'total_records': 0, 'status': 'Inspection lookup temporarily disabled'}
                     else:
                         establishment['inspections'] = []
                         establishment['inspection_summary'] = {

@@ -111,6 +111,8 @@ class NDCToLocationMapper:
     def load_fei_database_from_spreadsheet(self, file_path: str):
         """Load FEI and DUNS database from a spreadsheet with FEI_NUMBER, DUNS_NUMBER, ADDRESS, and FIRM_NAME columns"""
         try:
+            # ADD THIS DEBUG LINE:
+            st.write(f"🔍 DEBUG: Starting to load spreadsheet: {file_path}")
             # Try to read the file with different engines
             try:
                 # Force all columns to be read as strings to preserve leading zeros

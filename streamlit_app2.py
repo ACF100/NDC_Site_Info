@@ -83,7 +83,7 @@ class NDCToLocationMapper:
             st.error(f"❌ Error during database loading: {str(e)}")
 
     def load_fei_database_from_spreadsheet(self, file_path: str):
-        """Load FEI and DUNS database from a spreadsheet with FEI_NUMBER, DUNS_NUMBER, ADDRESS, and FIRM_NAME columns"""
+        """Load FEI and DUNS database from a spreadsheet with cross-linked identifiers"""
         try:
             # Try to read the file with different engines
             try:
@@ -139,77 +139,66 @@ class NDCToLocationMapper:
                     # Parse address components
                     address_parts = self.parse_address(address)
                     
-                    # Get firm name if available
+                    # Get firm name
                     firm_name = 'Unknown'
                     if firm_name_col and not pd.isna(row[firm_name_col]):
                         firm_name = str(row[firm_name_col]).strip()
                         if firm_name == 'nan' or firm_name == '':
                             firm_name = 'Unknown'
 
-                    # Process FEI number if column exists
+                    # Get BOTH FEI and DUNS from the same row
+                    fei_number = None
+                    duns_number = None
+                    
                     if fei_col and not pd.isna(row[fei_col]):
-                        fei_number = str(row[fei_col]).strip()
-                        if fei_number != 'nan' and fei_number != '':
-                            # Clean FEI number (remove any non-digits)
-                            fei_clean = re.sub(r'[^\d]', '', fei_number)
+                        fei_raw = str(row[fei_col]).strip()
+                        if fei_raw != 'nan' and fei_raw != '' and fei_raw != '0000000' and fei_raw != '0000000000':
+                            fei_clean = re.sub(r'[^\d]', '', fei_raw)
+                            if len(fei_clean) >= 7:
+                                fei_number = fei_raw
 
-                            if len(fei_clean) >= 7:  # Valid FEI numbers are typically 7-10 digits
-                                # Store in FEI database with multiple key formats
-                                establishment_data = {
-                                    'establishment_name': address_parts.get('establishment_name', 'Unknown'),
-                                    'firm_name': firm_name,
-                                    'address_line_1': address_parts.get('address_line_1', address),
-                                    'city': address_parts.get('city', 'Unknown'),
-                                    'state_province': address_parts.get('state_province', 'Unknown'),
-                                    'country': address_parts.get('country', 'Unknown'),
-                                    'postal_code': address_parts.get('postal_code', ''),
-                                    'latitude': address_parts.get('latitude'),
-                                    'longitude': address_parts.get('longitude'),
-                                    'search_method': 'spreadsheet_fei_database',
-                                    'original_fei': fei_number
-                                }
-                                
-                                # Generate ALL possible key formats for FEI
-                                possible_keys = self._generate_all_id_variants(fei_number)
-                                
-                                for key in possible_keys:
-                                    if key:
-                                        self.fei_database[key] = establishment_data
-                                        
-                                fei_count += 1
-
-                    # Process DUNS number if column exists
                     if duns_col and not pd.isna(row[duns_col]):
-                        duns_number = str(row[duns_col]).strip()
-                        if duns_number != 'nan' and duns_number != '':
-                            # Handle DUNS numbers that may be stored as text with leading zeros
-                            duns_clean = re.sub(r'[^\d]', '', duns_number)
+                        duns_raw = str(row[duns_col]).strip()
+                        if duns_raw != 'nan' and duns_raw != '':
+                            duns_clean = re.sub(r'[^\d]', '', duns_raw)
+                            if len(duns_clean) >= 8:
+                                duns_number = duns_raw
 
-                            if len(duns_clean) >= 8:  # Valid DUNS numbers are typically 9 digits
-                                # Store in DUNS database
-                                establishment_data = {
-                                    'establishment_name': address_parts.get('establishment_name', 'Unknown'),
-                                    'firm_name': firm_name,
-                                    'address_line_1': address_parts.get('address_line_1', address),
-                                    'city': address_parts.get('city', 'Unknown'),
-                                    'state_province': address_parts.get('state_province', 'Unknown'),
-                                    'country': address_parts.get('country', 'Unknown'),
-                                    'postal_code': address_parts.get('postal_code', ''),
-                                    'latitude': address_parts.get('latitude'),
-                                    'longitude': address_parts.get('longitude'),
-                                    'search_method': 'spreadsheet_duns_database',
-                                    'original_duns': duns_number
-                                }
-                                
-                                # Generate ALL possible key formats for DUNS
-                                possible_keys = self._generate_all_id_variants(duns_number)
-                                
-                                # Store under all possible key formats
-                                for key in possible_keys:
-                                    if key:  # Make sure key is not empty
-                                        self.duns_database[key] = establishment_data
-                                        
-                                duns_count += 1
+                    # Only process if we have at least one identifier
+                    if not fei_number and not duns_number:
+                        continue
+
+                    # Create establishment data with BOTH identifiers
+                    establishment_data = {
+                        'establishment_name': address_parts.get('establishment_name', 'Unknown'),
+                        'firm_name': firm_name,
+                        'address_line_1': address_parts.get('address_line_1', address),
+                        'city': address_parts.get('city', 'Unknown'),
+                        'state_province': address_parts.get('state_province', 'Unknown'),
+                        'country': address_parts.get('country', 'Unknown'),
+                        'postal_code': address_parts.get('postal_code', ''),
+                        'latitude': address_parts.get('latitude'),
+                        'longitude': address_parts.get('longitude'),
+                        'search_method': 'spreadsheet_database',
+                        'original_fei': fei_number,      # Store both identifiers
+                        'original_duns': duns_number     # Store both identifiers
+                    }
+
+                    # Store under FEI variants if FEI exists
+                    if fei_number:
+                        fei_variants = self._generate_all_id_variants(fei_number)
+                        for key in fei_variants:
+                            if key:
+                                self.fei_database[key] = establishment_data.copy()
+                        fei_count += 1
+
+                    # Store under DUNS variants if DUNS exists
+                    if duns_number:
+                        duns_variants = self._generate_all_id_variants(duns_number)
+                        for key in duns_variants:
+                            if key:
+                                self.duns_database[key] = establishment_data.copy()
+                        duns_count += 1
 
                 except Exception as e:
                     continue
@@ -1180,13 +1169,20 @@ class NDCToLocationMapper:
             
             if establishments_info:
                 for establishment in establishments_info:
-                    fei_number = establishment.get('fei_number')
-                    if fei_number:
-                        inspections = self.get_facility_inspections(fei_number)
+                    # Get FEI from the establishment data (should be there from database)
+                    fei_number = establishment.get('fei_number') or establishment.get('original_fei')
+                    
+                    # Clean up FEI number if it exists
+                    if fei_number and str(fei_number).strip() not in ['nan', '', 'None', '0000000', '0000000000']:
+                        fei_clean = str(fei_number).strip()
+                        
+                        # Look up inspections using the FEI number
+                        inspections = self.get_facility_inspections(fei_clean)
                         inspection_summary = self.get_inspection_summary(inspections)
                         
                         establishment['inspections'] = inspections[:10]
                         establishment['inspection_summary'] = inspection_summary
+                        establishment['fei_number'] = fei_clean  # Make sure it's displayed
                     else:
                         establishment['inspections'] = []
                         establishment['inspection_summary'] = {
@@ -1197,6 +1193,7 @@ class NDCToLocationMapper:
                 establishments = establishments_info
         
         return establishments[:10]
+
     def extract_company_names(self, product_info: ProductInfo) -> List[str]:
         """Extract company names from product information"""
         company_names = []

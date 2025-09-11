@@ -52,33 +52,51 @@ class NDCToLocationMapper:
         self.load_database_automatically()
 
     def load_database_automatically(self):
-        """Automatically load database from repository or GitHub"""
+        """Automatically load both establishment and inspection databases"""
         try:
-            # Try multiple possible locations for the database file
-            possible_files = [
-                "drls_reg.xlsx",  # Same directory as app
-                "data/drls_reg.xlsx",  # Data subdirectory
-                "./drls_reg.xlsx",  # Explicit current directory
-                "../drls_reg.xlsx"  # Parent directory
+            # Load establishment database
+            establishment_files = [
+                "drls_reg.xlsx",
+                "data/drls_reg.xlsx", 
+                "./drls_reg.xlsx",
+                "../drls_reg.xlsx"
             ]
             
-            # Try local files first
-            for file_path in possible_files:
+            # Load inspection database  
+            inspection_files = [
+                "inspection_outcomes.xlsx",
+                "data/inspection_outcomes.xlsx",
+                "./inspection_outcomes.xlsx", 
+                "../inspection_outcomes.xlsx"
+            ]
+            
+            # Try to load establishment database
+            for file_path in establishment_files:
                 if os.path.exists(file_path):
                     self.load_fei_database_from_spreadsheet(file_path)
                     if self.fei_database or self.duns_database:
                         self.database_loaded = True
-                        # Get file modification date
                         try:
                             mod_time = os.path.getmtime(file_path)
                             self.database_date = datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d")
                         except:
                             self.database_date = "Unknown"
-                        return
+                        break
             
-            # If no local file found, show error
-            st.error("❌ Could not load establishment database from any source")
+            # Try to load inspection database
+            for file_path in inspection_files:
+                if os.path.exists(file_path):
+                    if self.load_inspection_database_from_spreadsheet(file_path):
+                        st.success(f"✅ Loaded inspection outcomes database: {len(self.inspection_database):,} FEI records")
+                        break
             
+            if not hasattr(self, 'inspection_database'):
+                self.inspection_database = {}
+                
+            # Show error if no establishment database found
+            if not self.database_loaded:
+                st.error("❌ Could not load establishment database from any source")
+                
         except Exception as e:
             st.error(f"❌ Error during database loading: {str(e)}")
 
@@ -205,6 +223,59 @@ class NDCToLocationMapper:
 
         except Exception as e:
             pass
+
+    def load_inspection_database_from_spreadsheet(self, file_path: str):
+        """Load inspection outcomes database from spreadsheet"""
+        try:
+            # Read the inspection data file
+            df = pd.read_excel(file_path, dtype=str)
+            
+            # Create inspection database
+            self.inspection_database = {}
+            
+            for idx, row in df.iterrows():
+                try:
+                    fei_number = str(row.get('FEI Number', '')).strip()
+                    if not fei_number or fei_number == 'nan':
+                        continue
+                    
+                    # Clean FEI number
+                    fei_clean = re.sub(r'[^\d]', '', fei_number)
+                    if len(fei_clean) < 7:
+                        continue
+                    
+                    inspection_record = {
+                        'fei_number': fei_number,
+                        'legal_name': str(row.get('Legal Name', '')).strip(),
+                        'city': str(row.get('City', '')).strip(),
+                        'state': str(row.get('State', '')).strip(),
+                        'zip': str(row.get('Zip', '')).strip(),
+                        'country': str(row.get('Country/Area', '')).strip(),
+                        'fiscal_year': str(row.get('Fiscal Year', '')).strip(),
+                        'inspection_id': str(row.get('Inspection ID', '')).strip(),
+                        'posted_citations': str(row.get('Posted Citations', '')).strip(),
+                        'inspection_end_date': str(row.get('Inspection End Date', '')).strip(),
+                        'classification': str(row.get('Classification', '')).strip(),
+                        'project_area': str(row.get('Project Area', '')).strip(),
+                        'product_type': str(row.get('Product Type', '')).strip(),
+                        'additional_details': str(row.get('Additional Details', '')).strip(),
+                        'fmd_145_date': str(row.get('FMD-145 Date', '')).strip()
+                    }
+                    
+                    # Store under all FEI variants
+                    fei_variants = self._generate_all_id_variants(fei_number)
+                    for variant in fei_variants:
+                        if variant not in self.inspection_database:
+                            self.inspection_database[variant] = []
+                        self.inspection_database[variant].append(inspection_record)
+                        
+                except Exception as e:
+                    continue
+                    
+            return len(self.inspection_database) > 0
+            
+        except Exception as e:
+            return False
 
     def _generate_all_id_variants(self, id_number: str) -> List[str]:
         """Generate all possible variants of an ID number for matching"""
@@ -1505,22 +1576,37 @@ class NDCToLocationMapper:
             })
 
         return pd.DataFrame(results)
+
     def get_facility_inspections(self, fei_number: str) -> List[Dict]:
-        """Get inspection history for a facility using FEI number"""
+        """Get inspection history - prioritize local database, fallback to API"""
         inspections = []
         
         try:
-            inspection_sources = [
-                self.get_drug_inspections(fei_number),
-                self.get_device_inspections(fei_number),
-                self.get_food_inspections(fei_number),
-                self.get_warning_letters(fei_number)
-            ]
+            # First try local inspection database
+            local_inspections = self.get_facility_inspections_from_database(fei_number)
+            if local_inspections:
+                inspections.extend(local_inspections)
             
-            for source_inspections in inspection_sources:
-                if source_inspections:
-                    inspections.extend(source_inspections)
+            # Also get enforcement records from API as supplementary data
+            enforcement_inspections = []
+            try:
+                enforcement_sources = [
+                    self.get_drug_inspections(fei_number),
+                    self.get_device_inspections(fei_number),
+                    self.get_food_inspections(fei_number),
+                    self.get_warning_letters(fei_number)
+                ]
+                
+                for source_inspections in enforcement_sources:
+                    if source_inspections:
+                        enforcement_inspections.extend(source_inspections)
+            except:
+                pass
             
+            # Add enforcement records
+            inspections.extend(enforcement_inspections)
+            
+            # Remove duplicates and sort
             unique_inspections = self.deduplicate_inspections(inspections)
             return sorted(unique_inspections, key=lambda x: x.get('inspection_date', ''), reverse=True)
             
@@ -1649,6 +1735,44 @@ class NDCToLocationMapper:
         except Exception as e:
             return []
 
+    def get_facility_inspections_from_database(self, fei_number: str) -> List[Dict]:
+        """Get inspection outcomes from local database"""
+        inspections = []
+        
+        try:
+            # Generate FEI variants for lookup
+            fei_variants = self._generate_all_id_variants(fei_number)
+            
+            for variant in fei_variants:
+                if variant in self.inspection_database:
+                    for record in self.inspection_database[variant]:
+                        inspection = {
+                            'inspection_type': 'FDA_INSPECTION',
+                            'inspection_date': record.get('inspection_end_date', ''),
+                            'inspection_id': record.get('inspection_id', ''),
+                            'classification': record.get('classification', 'Unknown'),
+                            'status': record.get('posted_citations', 'Unknown'),
+                            'fiscal_year': record.get('fiscal_year', ''),
+                            'project_area': record.get('project_area', ''),
+                            'product_type': record.get('product_type', ''),
+                            'firm_name': record.get('legal_name', ''),
+                            'city': record.get('city', ''),
+                            'state': record.get('state', ''),
+                            'country': record.get('country', ''),
+                            'additional_details': record.get('additional_details', ''),
+                            'fmd_145_date': record.get('fmd_145_date', ''),
+                            'source': 'FDA Inspection Database'
+                        }
+                        inspections.append(inspection)
+                    break  # Found records for this FEI
+            
+            # Sort by inspection date (most recent first)
+            inspections.sort(key=lambda x: x.get('inspection_date', ''), reverse=True)
+            return inspections
+            
+        except Exception as e:
+            return []
+
     def parse_enforcement_record(self, record: Dict, record_type: str) -> Optional[Dict]:
         """Parse FDA enforcement record"""
         try:
@@ -1715,7 +1839,7 @@ class NDCToLocationMapper:
         return unique_inspections
 
     def get_inspection_summary(self, inspections: List[Dict]) -> Dict:
-        """Generate summary of inspection history"""
+        """Generate summary of inspection history with enhanced details"""
         if not inspections:
             return {
                 'total_records': 0,
@@ -1724,13 +1848,17 @@ class NDCToLocationMapper:
                 'record_types': {},
                 'classifications': {},
                 'all_activity': [],
-                'status': 'No enforcement records found'
+                'status': 'No inspection records found'
             }
         
         total_records = len(inspections)
         
+        # Separate FDA inspections from enforcement records
+        fda_inspections = [i for i in inspections if i.get('inspection_type') == 'FDA_INSPECTION']
+        enforcement_records = [i for i in inspections if i.get('inspection_type') != 'FDA_INSPECTION']
+        
         dates = [i.get('inspection_date', '') for i in inspections if i.get('inspection_date')]
-        dates = [d for d in dates if d]
+        dates = [d for d in dates if d and d != 'Unknown']
         
         most_recent_date = max(dates) if dates else None
         oldest_date = min(dates) if dates else None
@@ -1749,23 +1877,40 @@ class NDCToLocationMapper:
         
         all_activity = []
         for inspection in inspections:
-            all_activity.append({
+            activity = {
                 'date': inspection.get('inspection_date', ''),
                 'type': inspection.get('inspection_type', 'Unknown'),
                 'classification': inspection.get('classification', 'Unknown'),
+                'status': inspection.get('status', ''),
+                'inspection_id': inspection.get('inspection_id', ''),
+                'project_area': inspection.get('project_area', ''),
+                'product_type': inspection.get('product_type', ''),
                 'brief_reason': inspection.get('reason_for_recall', '')[:100] + '...' if inspection.get('reason_for_recall', '') else ''
-            })
+            }
+            all_activity.append(activity)
         
         all_activity.sort(key=lambda x: x['date'], reverse=True)
         
+        status_parts = []
+        if fda_inspections:
+            status_parts.append(f"{len(fda_inspections)} FDA inspections")
+        if enforcement_records:
+            status_parts.append(f"{len(enforcement_records)} enforcement records")
+        
+        status = f"{' and '.join(status_parts)} found" if status_parts else f"{total_records} records found"
+        if date_range:
+            status += f" ({date_range})"
+        
         return {
             'total_records': total_records,
+            'fda_inspections': len(fda_inspections),
+            'enforcement_records': len(enforcement_records),
             'date_range': date_range,
             'most_recent_date': most_recent_date,
             'record_types': record_types,
             'classifications': classifications,
             'all_activity': all_activity,
-            'status': f"{total_records} enforcement records found ({date_range})" if date_range else f"{total_records} enforcement records found"
+            'status': status
         }
 
     def format_inspection_details(self, inspections: List[Dict]) -> List[Dict]:
@@ -1953,6 +2098,25 @@ def main():
                                         st.write(f"**🌍 Country:** {row['country']}")
                                     if row['spl_operations'] and row['spl_operations'] != 'None found for this National Drug Code':
                                         st.write(f"**⚙️ Manufacturing Operations:** {row['spl_operations']}")
+
+                                # Show inspection information if available
+                                if row['fei_number']:
+                                    inspections = st.session_state.mapper.get_facility_inspections(row['fei_number'])
+                                    if inspections:
+                                        inspection_summary = st.session_state.mapper.get_inspection_summary(inspections)
+                                        st.write(f"**🔍 Inspection History:** {inspection_summary['status']}")
+                                        
+                                        # Show recent inspections in expandable section
+                                        with st.expander(f"View {len(inspections)} Inspection Records", expanded=False):
+                                            for inspection in inspections[:5]:  # Show first 5
+                                                st.write(f"**{inspection.get('inspection_date', 'Date unknown')}** - {inspection.get('classification', 'Unknown classification')}")
+                                                if inspection.get('inspection_id'):
+                                                    st.write(f"Inspection ID: {inspection['inspection_id']}")
+                                                if inspection.get('project_area'):
+                                                    st.write(f"Project Area: {inspection['project_area']}")
+                                                if inspection.get('status') and inspection.get('status') != 'Unknown':
+                                                    st.write(f"Citations: {inspection['status']}")
+                                                st.write("---")
                                 
                                 # Full address in address section
                                 full_address = generate_full_address(row)
@@ -2019,6 +2183,8 @@ def main():
         st.sidebar.markdown("---")
         st.sidebar.metric("FDA Database Entries", f"{len(st.session_state.mapper.fei_database):,}")
         st.sidebar.metric("Business Database Entries", f"{len(st.session_state.mapper.duns_database):,}")
+        if hasattr(st.session_state.mapper, 'inspection_database'):
+            st.sidebar.metric("Inspection Records", f"{len(st.session_state.mapper.inspection_database):,}")
         
         # Add database date if available
         if st.session_state.mapper.database_date:

@@ -75,8 +75,22 @@ class NDCToLocationMapper:
             # Try local files first
             for file_path in possible_files:
                 if os.path.exists(file_path):
+                    st.write(f"🔍 DEBUG: Trying to load: {file_path}")
+                    
+                    # Check database sizes before loading
+                    fei_before = len(self.fei_database)
+                    duns_before = len(self.duns_database)
+                    st.write(f"🔍 DEBUG: Before loading - FEI: {fei_before}, DUNS: {duns_before}")
+                    
                     self.load_fei_database_from_spreadsheet(file_path)
+                    
+                    # Check database sizes after loading
+                    fei_after = len(self.fei_database)
+                    duns_after = len(self.duns_database)
+                    st.write(f"🔍 DEBUG: After loading - FEI: {fei_after}, DUNS: {duns_after}")
+                    
                     if self.fei_database or self.duns_database:
+                        st.write("🔍 DEBUG: Database loaded successfully!")
                         self.database_loaded = True
                         # Get file modification date
                         try:
@@ -85,6 +99,8 @@ class NDCToLocationMapper:
                         except:
                             self.database_date = "Unknown"
                         return
+                    else:
+                        st.write("🔍 DEBUG: Database is still empty after loading attempt")
             
             # If no local file found, show error
             st.error("❌ Could not load establishment database from any source")

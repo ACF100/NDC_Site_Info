@@ -1185,8 +1185,8 @@ class NDCToLocationMapper:
                         inspections = self.get_facility_inspections(fei_number)
                         inspection_summary = self.get_inspection_summary(inspections)
                         
-                        #establishment['inspections'] = inspections[:10]
-                        #establishment['inspection_summary'] = inspection_summary
+                        establishment['inspections'] = inspections[:10]
+                        establishment['inspection_summary'] = inspection_summary
                                             else:
                         establishment['inspections'] = []
                         establishment['inspection_summary'] = {

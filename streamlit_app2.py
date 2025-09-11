@@ -1169,12 +1169,45 @@ class NDCToLocationMapper:
             
             if establishments_info:
                 for establishment in establishments_info:
-                    # Get FEI from the establishment data (should be there from database)
+                    # Get FEI from the establishment data
                     fei_number = establishment.get('fei_number') or establishment.get('original_fei')
                     
                     # Clean up FEI number if it exists
                     if fei_number and str(fei_number).strip() not in ['nan', '', 'None', '0000000', '0000000000']:
                         fei_clean = str(fei_number).strip()
+                        
+                        # SPECIAL DEBUG FOR GLENMARK FEI
+                        if fei_clean == "3008565058":
+                            st.write(f"🎯 SPECIAL DEBUG: Found Glenmark FEI {fei_clean}")
+                            st.write(f"🎯 Testing all API endpoints...")
+                            
+                            # Test each API endpoint individually
+                            drug_results = self.get_drug_inspections(fei_clean)
+                            device_results = self.get_device_inspections(fei_clean)
+                            food_results = self.get_food_inspections(fei_clean)
+                            warning_results = self.get_warning_letters(fei_clean)
+                            
+                            st.write(f"🎯 Drug enforcement: {len(drug_results)} records")
+                            st.write(f"🎯 Device enforcement: {len(device_results)} records")
+                            st.write(f"🎯 Food enforcement: {len(food_results)} records")
+                            st.write(f"🎯 Warning letters: {len(warning_results)} records")
+                            
+                            # Show raw API response for drug enforcement
+                            st.write(f"🎯 Testing raw API call...")
+                            import requests
+                            test_url = f"https://api.fda.gov/drug/enforcement.json?search=fei_number:\"{fei_clean}\"&limit=10"
+                            st.write(f"🎯 API URL: {test_url}")
+                            
+                            try:
+                                response = requests.get(test_url, timeout=10)
+                                st.write(f"🎯 Response status: {response.status_code}")
+                                if response.status_code == 200:
+                                    data = response.json()
+                                    st.write(f"🎯 Response data: {data}")
+                                else:
+                                    st.write(f"🎯 Error response: {response.text}")
+                            except Exception as e:
+                                st.write(f"🎯 API Exception: {str(e)}")
                         
                         # Look up inspections using the FEI number
                         inspections = self.get_facility_inspections(fei_clean)
@@ -1182,7 +1215,7 @@ class NDCToLocationMapper:
                         
                         establishment['inspections'] = inspections[:10]
                         establishment['inspection_summary'] = inspection_summary
-                        establishment['fei_number'] = fei_clean  # Make sure it's displayed
+                        establishment['fei_number'] = fei_clean
                     else:
                         establishment['inspections'] = []
                         establishment['inspection_summary'] = {

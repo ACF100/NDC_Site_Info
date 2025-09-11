@@ -1187,7 +1187,7 @@ class NDCToLocationMapper:
                         
                         establishment['inspections'] = inspections[:10]
                         establishment['inspection_summary'] = inspection_summary
-                                            else:
+                    else:
                         establishment['inspections'] = []
                         establishment['inspection_summary'] = {
                             'total_records': 0,

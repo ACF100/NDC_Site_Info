@@ -1839,78 +1839,34 @@ class NDCToLocationMapper:
         return unique_inspections
 
     def get_inspection_summary(self, inspections: List[Dict]) -> Dict:
-        """Generate summary of inspection history with enhanced details"""
+        """Generate simplified summary showing only most recent inspection"""
         if not inspections:
             return {
                 'total_records': 0,
-                'date_range': None,
                 'most_recent_date': None,
-                'record_types': {},
-                'classifications': {},
-                'all_activity': [],
+                'most_recent_outcome': None,
                 'status': 'No inspection records found'
             }
         
-        total_records = len(inspections)
+        # Sort by date to get most recent
+        sorted_inspections = sorted(inspections, key=lambda x: x.get('inspection_date', ''), reverse=True)
+        most_recent = sorted_inspections[0]
         
-        # Separate FDA inspections from enforcement records
-        fda_inspections = [i for i in inspections if i.get('inspection_type') == 'FDA_INSPECTION']
-        enforcement_records = [i for i in inspections if i.get('inspection_type') != 'FDA_INSPECTION']
+        # Get the most recent date and outcome
+        most_recent_date = most_recent.get('inspection_date', 'Date unknown')
+        most_recent_outcome = most_recent.get('classification', 'Outcome unknown')
         
-        dates = [i.get('inspection_date', '') for i in inspections if i.get('inspection_date')]
-        dates = [d for d in dates if d and d != 'Unknown']
-        
-        most_recent_date = max(dates) if dates else None
-        oldest_date = min(dates) if dates else None
-        date_range = f"{oldest_date} to {most_recent_date}" if oldest_date and most_recent_date else None
-        
-        record_types = {}
-        for inspection in inspections:
-            record_type = inspection.get('inspection_type', 'Unknown')
-            record_types[record_type] = record_types.get(record_type, 0) + 1
-        
-        classifications = {}
-        for inspection in inspections:
-            classification = inspection.get('classification', 'Unknown')
-            if classification and classification != 'Unknown':
-                classifications[classification] = classifications.get(classification, 0) + 1
-        
-        all_activity = []
-        for inspection in inspections:
-            activity = {
-                'date': inspection.get('inspection_date', ''),
-                'type': inspection.get('inspection_type', 'Unknown'),
-                'classification': inspection.get('classification', 'Unknown'),
-                'status': inspection.get('status', ''),
-                'inspection_id': inspection.get('inspection_id', ''),
-                'project_area': inspection.get('project_area', ''),
-                'product_type': inspection.get('product_type', ''),
-                'brief_reason': inspection.get('reason_for_recall', '')[:100] + '...' if inspection.get('reason_for_recall', '') else ''
-            }
-            all_activity.append(activity)
-        
-        all_activity.sort(key=lambda x: x['date'], reverse=True)
-        
-        status_parts = []
-        if fda_inspections:
-            status_parts.append(f"{len(fda_inspections)} FDA inspections")
-        if enforcement_records:
-            status_parts.append(f"{len(enforcement_records)} enforcement records")
-        
-        status = f"{' and '.join(status_parts)} found" if status_parts else f"{total_records} records found"
-        if date_range:
-            status += f" ({date_range})"
+        # If it's from local database, also check citations
+        if most_recent.get('inspection_type') == 'FDA_INSPECTION':
+            citations = most_recent.get('status', '')
+            if citations and citations != 'Unknown':
+                most_recent_outcome = f"{most_recent_outcome} - {citations}"
         
         return {
-            'total_records': total_records,
-            'fda_inspections': len(fda_inspections),
-            'enforcement_records': len(enforcement_records),
-            'date_range': date_range,
+            'total_records': len(inspections),
             'most_recent_date': most_recent_date,
-            'record_types': record_types,
-            'classifications': classifications,
-            'all_activity': all_activity,
-            'status': status
+            'most_recent_outcome': most_recent_outcome,
+            'status': f"Most recent: {most_recent_date} - {most_recent_outcome}"
         }
 
     def format_inspection_details(self, inspections: List[Dict]) -> List[Dict]:
@@ -2104,20 +2060,7 @@ def main():
                                     inspections = st.session_state.mapper.get_facility_inspections(row['fei_number'])
                                     if inspections:
                                         inspection_summary = st.session_state.mapper.get_inspection_summary(inspections)
-                                        st.write(f"**🔍 Inspection History:** {inspection_summary['status']}")
-                                        
-                                        # Show recent inspections in expandable section
-                                        with st.expander(f"View {len(inspections)} Inspection Records", expanded=False):
-                                            for inspection in inspections[:5]:  # Show first 5
-                                                st.write(f"**{inspection.get('inspection_date', 'Date unknown')}** - {inspection.get('classification', 'Unknown classification')}")
-                                                if inspection.get('inspection_id'):
-                                                    st.write(f"Inspection ID: {inspection['inspection_id']}")
-                                                if inspection.get('project_area'):
-                                                    st.write(f"Project Area: {inspection['project_area']}")
-                                                if inspection.get('status') and inspection.get('status') != 'Unknown':
-                                                    st.write(f"Citations: {inspection['status']}")
-                                                st.write("---")
-                                
+                                        st.write(f"**🔍 Most Recent Inspection:** {inspection_summary['status']}")                                
                                 # Full address in address section
                                 full_address = generate_full_address(row)
                                 if full_address != 'Address not available':
@@ -2184,7 +2127,7 @@ def main():
         st.sidebar.metric("FDA Database Entries", f"{len(st.session_state.mapper.fei_database):,}")
         st.sidebar.metric("Business Database Entries", f"{len(st.session_state.mapper.duns_database):,}")
         if hasattr(st.session_state.mapper, 'inspection_database'):
-            st.sidebar.metric("Inspection Records", f"{len(st.session_state.mapper.inspection_database):,}")
+            st.sidebar.metric("Facilities with Inspections", f"{len(st.session_state.mapper.inspection_database):,}")
         
         # Add database date if available
         if st.session_state.mapper.database_date:

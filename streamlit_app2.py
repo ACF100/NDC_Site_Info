@@ -1268,6 +1268,24 @@ class NDCToLocationMapper:
                             except Exception as e:
                                 st.write(f"🎯 Exception: {str(e)}")
                         
+                            # Test 6: Search by DUNS
+                            st.write(f"🎯 TEST 6: Search by DUNS")
+                            duns_number = establishment.get('duns_number', '862603186')  # Glenmark DUNS
+                            test_url6 = f"https://api.fda.gov/drug/enforcement.json?search=duns_number:\"{duns_number}\"&limit=10"
+                            st.write(f"🎯 URL: {test_url6}")
+                            try:
+                                response6 = requests.get(test_url6, timeout=10)
+                                st.write(f"🎯 Status: {response6.status_code}")
+                                if response6.status_code == 200:
+                                    data6 = response6.json()
+                                    st.write(f"🎯 Results: {len(data6.get('results', []))}")
+                                    if data6.get('results'):
+                                        st.write(f"🎯 Sample: {data6['results'][0]}")
+                                else:
+                                    st.write(f"🎯 Error: {response6.text}")
+                            except Exception as e:
+                                st.write(f"🎯 Exception: {str(e)}")
+
                         # Look up inspections using the FEI number
                         inspections = self.get_facility_inspections(fei_clean)
                         inspection_summary = self.get_inspection_summary(inspections)

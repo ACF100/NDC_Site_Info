@@ -1176,9 +1176,10 @@ class NDCToLocationMapper:
                     if fei_number and str(fei_number).strip() not in ['nan', '', 'None', '0000000', '0000000000']:
                         fei_clean = str(fei_number).strip()
                         
-                        # SPECIAL DEBUG FOR GLENMARK FEI
-                        if fei_clean == "3008565058":
-                            st.write(f"🎯 SPECIAL DEBUG: Found Glenmark FEI {fei_clean}")
+                        # SPECIAL DEBUG FOR MAGNACHEM FEI (2024 warning letter)
+                        if fei_clean == "3003320065":
+                            st.write(f"🎯 SPECIAL DEBUG: Found Magnachem FEI {fei_clean}")
+                            st.write(f"🎯 This facility has a June 2024 warning letter - should be in API")
                             st.write(f"🎯 Testing all API endpoints...")
                             
                             # Test each API endpoint individually
@@ -1208,6 +1209,25 @@ class NDCToLocationMapper:
                                     st.write(f"🎯 Error response: {response.text}")
                             except Exception as e:
                                 st.write(f"🎯 API Exception: {str(e)}")
+                            
+                            # Try searching by company name instead
+                            st.write(f"🎯 Trying search by company name...")
+                            company_url = f"https://api.fda.gov/drug/enforcement.json?search=recalling_firm:\"Magnachem\"&limit=10"
+                            st.write(f"🎯 Company search URL: {company_url}")
+                            
+                            try:
+                                response2 = requests.get(company_url, timeout=10)
+                                st.write(f"🎯 Company search status: {response2.status_code}")
+                                if response2.status_code == 200:
+                                    data2 = response2.json()
+                                    results_count = len(data2.get('results', []))
+                                    st.write(f"🎯 Company search found: {results_count} records")
+                                    if results_count > 0:
+                                        st.write(f"🎯 Sample result: {data2['results'][0]}")
+                                else:
+                                    st.write(f"🎯 Company search error: {response2.text}")
+                            except Exception as e:
+                                st.write(f"🎯 Company search exception: {str(e)}")
                         
                         # Look up inspections using the FEI number
                         inspections = self.get_facility_inspections(fei_clean)

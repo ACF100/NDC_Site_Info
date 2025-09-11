@@ -85,17 +85,32 @@ class NDCToLocationMapper:
     def load_fei_database_from_spreadsheet(self, file_path: str):
         """Load FEI and DUNS database from a spreadsheet with FEI_NUMBER, DUNS_NUMBER, ADDRESS, and FIRM_NAME columns"""
         try:
-            # ADD THIS DEBUG LINE:
             st.write(f"🔍 DEBUG: Starting to load spreadsheet: {file_path}")
+            
             # Try to read the file with different engines
+            df = None
             try:
                 # Force all columns to be read as strings to preserve leading zeros
                 df = pd.read_excel(file_path, dtype=str)
-            except:
+                st.write(f"✅ DEBUG: Successfully read Excel file with {len(df)} rows and {len(df.columns)} columns")
+                st.write(f"🔍 DEBUG: Column names: {list(df.columns)}")
+            except Exception as e:
+                st.write(f"❌ DEBUG: Excel read failed: {str(e)}")
                 try:
                     df = pd.read_csv(file_path, dtype=str)
-                except Exception as e:
+                    st.write(f"✅ DEBUG: Successfully read as CSV with {len(df)} rows and {len(df.columns)} columns")
+                    st.write(f"🔍 DEBUG: Column names: {list(df.columns)}")
+                except Exception as e2:
+                    st.write(f"❌ DEBUG: CSV read also failed: {str(e2)}")
                     return
+
+            if df is None or df.empty:
+                st.write("❌ DEBUG: DataFrame is None or empty")
+                return
+
+            # Show first few rows for debugging
+            st.write("🔍 DEBUG: First 3 rows of data:")
+            st.write(df.head(3))
 
             # Look for FEI_NUMBER, DUNS_NUMBER, ADDRESS, and FIRM_NAME columns (case insensitive, flexible matching)
             fei_col = None
@@ -107,35 +122,52 @@ class NDCToLocationMapper:
                 col_lower = col.lower().strip().replace('_', '').replace(' ', '')
                 col_original = col.strip()
                 
+                st.write(f"🔍 DEBUG: Checking column '{col_original}' (normalized: '{col_lower}')")
+                
                 # More flexible FEI column matching
                 if ('fei' in col_lower and 'number' in col_lower) or col_lower == 'feinumber':
                     fei_col = col_original
+                    st.write(f"✅ DEBUG: Found FEI column: {fei_col}")
                 # More flexible DUNS column matching
                 elif ('duns' in col_lower and 'number' in col_lower) or col_lower == 'dunsnumber':
                     duns_col = col_original
+                    st.write(f"✅ DEBUG: Found DUNS column: {duns_col}")
                 # More flexible ADDRESS column matching
                 elif 'address' in col_lower:
                     address_col = col_original
+                    st.write(f"✅ DEBUG: Found ADDRESS column: {address_col}")
                 # More flexible FIRM_NAME column matching
                 elif ('firm' in col_lower and 'name' in col_lower) or col_lower == 'firmname':
                     firm_name_col = col_original
+                    st.write(f"✅ DEBUG: Found FIRM_NAME column: {firm_name_col}")
+
+            st.write(f"🔍 DEBUG: Final column mapping - FEI: {fei_col}, DUNS: {duns_col}, ADDRESS: {address_col}, FIRM: {firm_name_col}")
 
             if not fei_col and not duns_col:
+                st.write("❌ DEBUG: No FEI or DUNS columns found - stopping")
                 return
 
             if not address_col:
+                st.write("❌ DEBUG: No ADDRESS column found - stopping")
                 return
 
             # Process each row
             fei_count = 0
             duns_count = 0
             
+            st.write(f"🔍 DEBUG: Starting to process {len(df)} rows...")
+            
             for idx, row in df.iterrows():
+                if idx < 3:  # Debug first 3 rows
+                    st.write(f"🔍 DEBUG: Processing row {idx}: {dict(row)}")
+                
                 try:
                     address = str(row[address_col]).strip()
                     
                     # Skip empty address rows
                     if pd.isna(row[address_col]) or address == 'nan' or address == '':
+                        if idx < 3:
+                            st.write(f"🔍 DEBUG: Row {idx} - skipping empty address")
                         continue
 
                     # Parse address components
@@ -156,6 +188,9 @@ class NDCToLocationMapper:
                             fei_clean = re.sub(r'[^\d]', '', fei_number)
 
                             if len(fei_clean) >= 7:  # Valid FEI numbers are typically 7-10 digits
+                                if idx < 3:
+                                    st.write(f"🔍 DEBUG: Row {idx} - processing FEI: {fei_number} (clean: {fei_clean})")
+                                
                                 # Store in FEI database with multiple key formats
                                 establishment_data = {
                                     'establishment_name': address_parts.get('establishment_name', 'Unknown'),
@@ -174,6 +209,9 @@ class NDCToLocationMapper:
                                 # Generate ALL possible key formats for FEI
                                 possible_keys = self._generate_all_id_variants(fei_number)
                                 
+                                if idx < 3:
+                                    st.write(f"🔍 DEBUG: Row {idx} - FEI variants: {possible_keys[:5]}...")  # Show first 5
+                                
                                 for key in possible_keys:
                                     if key:
                                         self.fei_database[key] = establishment_data
@@ -188,6 +226,9 @@ class NDCToLocationMapper:
                             duns_clean = re.sub(r'[^\d]', '', duns_number)
 
                             if len(duns_clean) >= 8:  # Valid DUNS numbers are typically 9 digits
+                                if idx < 3:
+                                    st.write(f"🔍 DEBUG: Row {idx} - processing DUNS: {duns_number} (clean: {duns_clean})")
+                                
                                 # Store in DUNS database
                                 establishment_data = {
                                     'establishment_name': address_parts.get('establishment_name', 'Unknown'),
@@ -214,10 +255,16 @@ class NDCToLocationMapper:
                                 duns_count += 1
 
                 except Exception as e:
+                    if idx < 3:
+                        st.write(f"❌ DEBUG: Error processing row {idx}: {str(e)}")
                     continue
 
+            st.write(f"🔍 DEBUG: Processing complete - FEI entries: {fei_count}, DUNS entries: {duns_count}")
+            st.write(f"🔍 DEBUG: Final database sizes - FEI: {len(self.fei_database)}, DUNS: {len(self.duns_database)}")
+
         except Exception as e:
-            pass
+            st.write(f"❌ DEBUG: Exception in load_fei_database_from_spreadsheet: {str(e)}")
+            st.exception(e)
 
     def _generate_all_id_variants(self, id_number: str) -> List[str]:
         """Generate all possible variants of an ID number for matching"""

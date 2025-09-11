@@ -62,6 +62,22 @@ class NDCToLocationMapper:
                 "../drls_reg.xlsx"  # Parent directory
             ]
             
+        # ADD THESE DEBUG LINES HERE (with 8 spaces):
+        import os
+        st.write("🔍 DEBUG: Files in current directory:", os.listdir("."))
+        try:
+            if os.path.exists("data"):
+                st.write("🔍 DEBUG: Files in data directory:", os.listdir("data"))
+        except:
+            st.write("🔍 DEBUG: No data directory found")
+
+        st.write("🔍 DEBUG: Looking for these files:", possible_files)
+        for file_path in possible_files:
+            if os.path.exists(file_path):
+                st.write(f"✅ Found: {file_path}")
+            else:
+                st.write(f"❌ Not found: {file_path}")
+
             # Try local files first
             for file_path in possible_files:
                 if os.path.exists(file_path):

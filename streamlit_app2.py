@@ -365,11 +365,15 @@ class NDCToLocationMapper:
         
         categorized_classification = classification_map.get(most_recent_classification, most_recent_classification)
         
-        # Find all OAI inspection dates
+        # Find all OAI inspection dates - FIXED: More comprehensive search
         oai_dates = []
         for inspection in sorted_inspections:
-            classification = inspection.get('classification', '')
-            if 'Official Action Indicated' in classification or 'OAI' in classification:
+            classification = inspection.get('classification', '').strip()
+            # Check for various OAI patterns
+            if (classification == 'Official Action Indicated (OAI)' or 
+                classification == 'Official Action Indicated' or
+                'Official Action Indicated' in classification or 
+                classification == 'OAI'):
                 oai_date = parse_date(inspection.get('inspection_date', ''))
                 if oai_date and oai_date not in oai_dates:
                     oai_dates.append(oai_date)
@@ -390,8 +394,8 @@ class NDCToLocationMapper:
         else:
             status = categorized_classification
         
-        # Add OAI history if any exist and they're different from most recent
-        if oai_dates and (len(oai_dates) > 1 or (len(oai_dates) == 1 and 'Unacceptable Compliance' not in categorized_classification)):
+        # Add OAI history - FIXED: Show OAI history even if most recent is also OAI
+        if oai_dates:
             display_oai_dates = []
             for oai_date in oai_dates:
                 if '/' not in oai_date and '-' in oai_date:

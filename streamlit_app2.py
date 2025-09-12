@@ -328,7 +328,6 @@ class NDCToLocationMapper:
             }
         
         # Sort by date to get most recent (handle different date formats)
-        # Sort by date to get most recent (handle different date formats)
         def parse_date(date_str):
             if not date_str or date_str == 'Date unknown':
                 return ''
@@ -421,6 +420,32 @@ class NDCToLocationMapper:
         
         if not found_any:
             st.write("❌ No inspection records found for this FEI")
+
+    def debug_all_fei_records(self, fei_number: str):
+        """Debug to see ALL records for FEI including older ones"""
+        st.write(f"**🔍 COMPLETE DEBUG: All records for FEI {fei_number}:**")
+        
+        fei_variants = self._generate_all_id_variants(fei_number)
+        total_found = 0
+        
+        for variant in fei_variants:
+            if variant in self.inspection_database:
+                records = self.inspection_database[variant]
+                st.write(f"Variant '{variant}': {len(records)} records")
+                
+                # Sort by date to see chronological order
+                sorted_records = sorted(records, key=lambda x: x.get('inspection_end_date', ''))
+                
+                for i, record in enumerate(sorted_records):
+                    date = record.get('inspection_end_date', 'No date')
+                    classification = record.get('classification', 'No classification')
+                    fiscal_year = record.get('fiscal_year', 'No FY')
+                    st.write(f"  {i+1}. {date} | {classification} | FY: {fiscal_year}")
+                
+                total_found += len(records)
+                break
+        
+        st.write(f"**Total records found: {total_found}**")
 
     def _generate_all_id_variants(self, id_number: str) -> List[str]:
         """Generate all possible variants of an ID number for matching"""
@@ -2063,7 +2088,7 @@ def main():
 
                                 # Show inspection information if available
                                 if row['fei_number']:
-                                    st.session_state.mapper.debug_specific_fei(row['fei_number'])
+                                    st.session_state.mapper.debug_all_fei_records(row['fei_number'])
                                     inspections = st.session_state.mapper.get_facility_inspections(row['fei_number'])
                                     if inspections:
                                         inspection_summary = st.session_state.mapper.get_inspection_summary(inspections)

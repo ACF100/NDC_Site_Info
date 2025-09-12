@@ -328,11 +328,22 @@ class NDCToLocationMapper:
             }
         
         # Sort by date to get most recent (handle different date formats)
+        # Sort by date to get most recent (handle different date formats)
         def parse_date(date_str):
-            if not date_str or date_str == 'Date unknown' or date_str == 'nan' or str(date_str).strip() == '':
+            if not date_str or date_str == 'Date unknown':
                 return ''
             # Remove timestamp if present
             date_only = str(date_str).split(' ')[0]
+            
+            # Convert MM/DD/YYYY to YYYY-MM-DD for proper sorting
+            if '/' in date_only:
+                try:
+                    parts = date_only.split('/')
+                    if len(parts) == 3:
+                        # Convert MM/DD/YYYY to YYYY-MM-DD
+                        return f"{parts[2]}-{parts[0].zfill(2)}-{parts[1].zfill(2)}"
+                except:
+                    pass
             return date_only
         
         sorted_inspections = sorted(inspections, 

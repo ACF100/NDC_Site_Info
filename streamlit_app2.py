@@ -10,6 +10,316 @@ from dataclasses import dataclass
 import logging
 import re
 import warnings
+from datetime import datetime
+
+# Configure logging to only show errors
+logging.basicConfig(level=logging.ERROR)
+logger = logging.getLogger(__name__)
+
+@dataclass
+class ProductInfo:
+    ndc: str
+    product_name: str
+    labeler_name: str
+    spl_id: Optional[str] = None
+    fei_numbers: List[str] = None
+    establishments: List[Dict] = None
+
+@dataclass
+class FEIMatch:
+    fei_number: str
+    xml_location: str
+    match_type: str  # 'FEI_NUMBER' or 'DUNS_NUMBER'
+    establishment_name: str = None
+    xml_context: str = None  # Surrounding XML context
+
+class NDCToLocationMapper:
+    def __init__(self):
+        self.base_openfda_url = "https://api.fda.gov"
+        self.dailymed_base_url = "https://dailymed.nlm.nih.gov/dailymed"
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'FDA-Research-Tool/1.0 (research@fda.gov)'
+        })
+
+        # Initialize empty databases
+        self.fei_database = {}
+        self.duns_database = {}
+        self.database_loaded = False
+        
+        # Auto-load database
+        self.load_database_automatically()
+
+    def load_database_automatically(self):
+        """Automatically load database from repository or GitHub"""
+        try:
+            # Try multiple possible locations for the database file
+            possible_files = [
+                "drls_reg.xlsx",  # Same directory as app
+                "data/drls_reg.xlsx",  # Data subdirectory
+                "./drls_reg.xlsx",  # Explicit current directory
+                "../drls_reg.xlsx"  # Parent directory
+            ]
+            
+            # Try local files first
+            for file_path in possible_files:
+                if os.path.exists(file_path):
+                    st.info(f"📂 Loading establishment database from repository...")
+                    self.load_fei_database_from_spreadsheet(file_path)
+                    if self.fei_database or self.duns_database:
+                        self.database_loaded = True
+                        return
+            
+            # If no local file found, show error
+            st.error("❌ Could not load establishment database from any source")
+            st.info("💡 Please ensure drls_reg.xlsx is available in the repository")
+            
+        except Exception as e:
+            st.error(f"❌ Error during database loading: {str(e)}")
+
+    def load_fei_database_from_spreadsheet(self, file_path: str):
+        """Load FEI and DUNS database from a spreadsheet"""
+        try:
+            try:
+                df = pd.read_excel(file_path, dtype=str)
+            except:
+                try:
+                    df = pd.read_csv(file_path, dtype=str)
+                except Exception as e:
+                    return
+
+            # Look for columns
+            fei_col = None
+            duns_col = None
+            address_col = None
+            firm_name_col = None
+
+            for col in df.columns:
+                col_lower = col.lower().strip().replace('_', '').replace(' ', '')
+                col_original = col.strip()
+                
+                if ('fei' in col_lower and 'number' in col_lower) or col_lower == 'feinumber':
+                    fei_col = col_original
+                elif ('duns' in col_lower and 'number' in col_lower) or col_lower == 'dunsnumber':
+                    duns_col = col_original
+                elif 'address' in col_lower:
+                    address_col = col_original
+                elif ('firm' in col_lower and 'name' in col_lower) or col_lower == 'firmname':
+                    firm_name_col = col_original
+
+            if not fei_col and not duns_col:
+                return
+            if not address_col:
+                return
+
+            fei_count = 0
+            duns_count = 0
+            
+            for idx, row in df.iterrows():
+                try:
+                    address = str(row[address_col]).strip()
+                    if pd.isna(row[address_col]) or address == 'nan' or address == '':
+                        continue
+
+                    address_parts = self.parse_address(address)
+                    firm_name = 'Unknown'
+                    if firm_name_col and not pd.isna(row[firm_name_col]):
+                        firm_name = str(row[firm_name_col]).strip()
+                        if firm_name == 'nan' or firm_name == '':
+                            firm_name = 'Unknown'
+
+                    # Process FEI number
+                    if fei_col and not pd.isna(row[fei_col]):
+                        fei_number = str(row[fei_col]).strip()
+                        if fei_number != 'nan' and fei_number != '':
+                            fei_clean = re.sub(r'[^\d]', '', fei_number)
+                            if len(fei_clean) >= 7:
+                                establishment_data = {
+                                    'establishment_name': address_parts.get('establishment_name', 'Unknown'),
+                                    'firm_name': firm_name,
+                                    'address_line_1': address_parts.get('address_line_1', address),
+                                    'city': address_parts.get('city', 'Unknown'),
+                                    'state_province': address_parts.get('state_province', 'Unknown'),
+                                    'country': address_parts.get('country', 'Unknown'),
+                                    'postal_code': address_parts.get('postal_code', ''),
+                                    'latitude': address_parts.get('latitude'),
+                                    'longitude': address_parts.get('longitude'),
+                                    'search_method': 'spreadsheet_fei_database',
+                                    'original_fei': fei_number
+                                }
+                                
+                                possible_keys = self._generate_all_id_variants(fei_number)
+                                for key in possible_keys:
+                                    if key:
+                                        self.fei_database[key] = establishment_data
+                                fei_count += 1
+
+                    # Process DUNS number
+                    if duns_col and not pd.isna(row[duns_col]):
+                        duns_number = str(row[duns_col]).strip()
+                        if duns_number != 'nan' and duns_number != '':
+                            duns_clean = re.sub(r'[^\d]', '', duns_number)
+                            if len(duns_clean) >= 8:
+                                establishment_data = {
+                                    'establishment_name': address_parts.get('establishment_name', 'Unknown'),
+                                    'firm_name': firm_name,
+                                    'address_line_1': address_parts.get('address_line_1', address),
+                                    'city': address_parts.get('city', 'Unknown'),
+                                    'state_province': address_parts.get('state_province', 'Unknown'),
+                                    'country': address_parts.get('country', 'Unknown'),
+                                    'postal_code': address_parts.get('postal_code', ''),
+                                    'latitude': address_parts.get('latitude'),
+                                    'longitude': address_parts.get('longitude'),
+                                    'search_method': 'spreadsheet_duns_database',
+                                    'original_duns': duns_number
+                                }
+                                
+                                possible_keys = self._generate_all_id_variants(duns_number)
+                                for key in possible_keys:
+                                    if key:
+                                        self.duns_database[key] = establishment_data
+                                duns_count += 1
+
+                except Exception as e:
+                    continue
+
+        except Exception as e:
+            pass
+
+    def _generate_all_id_variants(self, id_number: str) -> List[str]:
+        """Generate all possible variants of an ID number for matching"""
+        clean_id = re.sub(r'[^\d]', '', str(id_number))
+        variants = []
+        
+        variants.extend([
+            str(id_number).strip(),
+            clean_id,
+            clean_id.lstrip('0')
+        ])
+        
+        try:
+            id_as_int = int(clean_id)
+            for padding in [8, 9, 10, 11, 12, 13, 14, 15]:
+                padded = f"{id_as_int:0{padding}d}"
+                variants.append(padded)
+            variants.append(str(id_as_int))
+        except ValueError:
+            pass
+        
+        return list(dict.fromkeys([v for v in variants if v]))
+
+    def parse_address(self, address: str) -> Dict:
+        """Parse address string into components"""
+        try:
+            parts = {
+                'establishment_name': 'Unknown',
+                'address_line_1': address,
+                'city': 'Unknown',
+                'state_province': 'Unknown',
+                'country': 'Unknown',
+                'postal_code': '',
+                'latitude': None,
+                'longitude': None
+            }
+
+            lines = address.replace('\\n', ',').split(',')
+            if len(lines) > 0:
+                parts['establishment_name'] = lines[0].strip()
+
+            if len(lines) >= 2:
+                parts['address_line_1'] = lines[1].strip() if len(lines) > 1 else lines[0].strip()
+            if len(lines) >= 3:
+                city_part = lines[-2].strip()
+                parts['city'] = city_part
+            if len(lines) >= 4:
+                last_part = lines[-1].strip()
+                parts['state_province'] = last_part
+
+                if any(country in last_part.upper() for country in ['USA', 'US', 'UNITED STATES']):
+                    parts['country'] = 'USA'
+                elif any(country in last_part.upper() for country in ['GERMANY', 'DEUTSCHLAND']):
+                    parts['country'] = 'Germany'
+                elif any(country in last_part.upper() for country in ['SWITZERLAND', 'SCHWEIZ']):
+                    parts['country'] = 'Switzerland'
+                elif any(country in last_part.upper() for country in ['SINGAPORE']):
+                    parts['country'] = 'Singapore'
+                else:
+                    parts['country'] = last_part
+
+            postal_match = re.search(r'\\b(\\d{5}(?:-\\d{4})?|\\d{4,6})\\b', address)
+            if postal_match:
+                parts['postal_code'] = postal_match.group(1)
+
+            return parts
+
+        except Exception as e:
+            return {
+                'establishment_name': 'Unknown',
+                'address_line_1': address,
+                'city': 'Unknown',
+                'state_province': 'Unknown',
+                'country': 'Unknown',
+                'postal_code': '',
+                'latitude': None,
+                'longitude': None
+            }
+
+    def validate_ndc_format(self, ndc: str) -> bool:
+        """Validate NDC format"""
+        ndc = str(ndc).strip()
+        clean_ndc = re.sub(r'[^\d\-]', '', ndc)
+        
+        patterns = [
+            r'^\d{4,5}-\d{3,4}-\d{1,2}$',
+            r'^\d{10,11}$',
+            r'^\d{8,9}$'
+        ]
+        
+        if any(re.match(pattern, clean_ndc) for pattern in patterns):
+            return True
+        
+        try:
+            normalized = self.normalize_ndc(clean_ndc)
+            return any(re.match(pattern, normalized) for pattern in patterns[:2])
+        except:
+            pass
+        
+        digits_only = re.sub(r'[^\d]', '', ndc)
+        return len(digits_only) >= 8 and len(digits_only) <= 11
+
+    def normalize_ndc(self, ndc: str) -> str:
+        """SIMPLE: Convert to standard 5-4-2 format that works with existing establishment matching"""
+        clean_ndc = re.sub(r'[^\d\-]', '', str(ndc))
+        
+        # Remove dashes to get just digits
+        digits_only = clean_ndc.replace('-', '')
+        
+        # Pad to 11 digits (standard format)
+        if len(digits_only) == 10:
+            digits_only = '0' + digits_only
+        elif len(digits_only) == 9:
+            digits_only = '00' + digits_only
+        elif len(digits_only) == 8:
+            digits_only = '000' + digits_only
+        
+        # Convert to 5-4-2 format (this is what was working!)
+        if len(digits_only) >= 11:
+            return f"{digits_only[:5]}-{digits_only[5:9]}-{digits_only[9:11]}"
+        
+        return clean_ndc
+
+import streamlit as st
+import pandas as pd
+import os
+import requests
+import json
+import time
+import xml.etree.ElementTree as ET
+from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+import logging
+import re
+import warnings
 from datetime import datetime, timedelta
 
 # Configure logging to only show errors
@@ -56,6 +366,10 @@ class NDCToLocationMapper:
         try:
             # Load establishment database
             establishment_files = [
+                "drls_reg.csv",
+                "data/drls_reg.csv", 
+                "./drls_reg.csv",
+                "../drls_reg.csv",
                 "drls_reg.xlsx",
                 "data/drls_reg.xlsx", 
                 "./drls_reg.xlsx",
@@ -64,11 +378,85 @@ class NDCToLocationMapper:
             
             # Load inspection database  
             inspection_files = [
+                "inspection_outcomes_reg.csv",
+                "data/inspection_outcomes_reg.csv",
+                "./inspection_outcomes_reg.csv", 
+                "../inspection_outcomes_reg.csv",
                 "inspection_outcomes.xlsx",
                 "data/inspection_outcomes.xlsx",
                 "./inspection_outcomes.xlsx", 
                 "../inspection_outcomes.xlsx"
             ]
+
+    def get_inspection_summary(self, inspections: List[Dict]) -> Dict:
+        """Generate simplified summary showing most recent inspection and any OAI dates"""
+        if not inspections:
+            return {
+                'total_records': 0,
+                'most_recent_date': None,
+                'most_recent_outcome': None,
+                'oai_dates': [],
+                'status': 'No inspection records found'
+            }
+        
+        # Sort by date to get most recent (handle different date formats)
+        def parse_date(date_str):
+            if not date_str or date_str == 'Date unknown':
+                return ''
+            # Remove timestamp if present
+            date_only = str(date_str).split(' ')[0]
+            return date_only
+        
+        sorted_inspections = sorted(inspections, 
+                                  key=lambda x: parse_date(x.get('inspection_date', '')), 
+                                  reverse=True)
+        most_recent = sorted_inspections[0]
+        
+        # Get the most recent date and outcome (remove timestamp)
+        most_recent_date = parse_date(most_recent.get('inspection_date', 'Date unknown'))
+        most_recent_classification = most_recent.get('classification', 'Outcome unknown')
+        
+        # Simplify classification names
+        classification_map = {
+            'No Action Indicated (NAI)': 'NAI',
+            'Voluntary Action Indicated (VAI)': 'VAI', 
+            'Official Action Indicated (OAI)': 'OAI',
+            'No Action Indicated': 'NAI',
+            'Voluntary Action Indicated': 'VAI',
+            'Official Action Indicated': 'OAI'
+        }
+        
+        simplified_classification = classification_map.get(most_recent_classification, most_recent_classification)
+        
+        # Find all OAI inspection dates
+        oai_dates = []
+        for inspection in sorted_inspections:
+            classification = inspection.get('classification', '')
+            if 'Official Action Indicated' in classification or 'OAI' in classification:
+                oai_date = parse_date(inspection.get('inspection_date', ''))
+                if oai_date and oai_date not in oai_dates:
+                    oai_dates.append(oai_date)
+        
+        # Build status string
+        if most_recent_date != 'Date unknown':
+            status = f"{simplified_classification} {most_recent_date}"
+        else:
+            status = simplified_classification
+        
+        # Add OAI dates if any exist and they're different from most recent
+        if oai_dates and (not oai_dates or oai_dates[0] != most_recent_date or simplified_classification != 'OAI'):
+            if len(oai_dates) == 1:
+                status += f" | OAI: {oai_dates[0]}"
+            else:
+                status += f" | OAI dates: {', '.join(oai_dates)}"
+        
+        return {
+            'total_records': len(inspections),
+            'most_recent_date': most_recent_date,
+            'most_recent_outcome': simplified_classification,
+            'oai_dates': oai_dates,
+            'status': status
+        }
             
             # Try to load establishment database
             for file_path in establishment_files:
@@ -1839,34 +2227,73 @@ class NDCToLocationMapper:
         return unique_inspections
 
     def get_inspection_summary(self, inspections: List[Dict]) -> Dict:
-        """Generate simplified summary showing only most recent inspection"""
+        """Generate simplified summary showing most recent inspection and any OAI dates"""
         if not inspections:
             return {
                 'total_records': 0,
                 'most_recent_date': None,
                 'most_recent_outcome': None,
+                'oai_dates': [],
                 'status': 'No inspection records found'
             }
         
-        # Sort by date to get most recent
-        sorted_inspections = sorted(inspections, key=lambda x: x.get('inspection_date', ''), reverse=True)
+        # Sort by date to get most recent (handle different date formats)
+        def parse_date(date_str):
+            if not date_str or date_str == 'Date unknown':
+                return ''
+            # Remove timestamp if present
+            date_only = str(date_str).split(' ')[0]
+            return date_only
+        
+        sorted_inspections = sorted(inspections, 
+                                  key=lambda x: parse_date(x.get('inspection_date', '')), 
+                                  reverse=True)
         most_recent = sorted_inspections[0]
         
-        # Get the most recent date and outcome
-        most_recent_date = most_recent.get('inspection_date', 'Date unknown')
-        most_recent_outcome = most_recent.get('classification', 'Outcome unknown')
+        # Get the most recent date and outcome (remove timestamp)
+        most_recent_date = parse_date(most_recent.get('inspection_date', 'Date unknown'))
+        most_recent_classification = most_recent.get('classification', 'Outcome unknown')
         
-        # If it's from local database, also check citations
-        if most_recent.get('inspection_type') == 'FDA_INSPECTION':
-            citations = most_recent.get('status', '')
-            if citations and citations != 'Unknown':
-                most_recent_outcome = f"{most_recent_outcome} - {citations}"
+        # Simplify classification names
+        classification_map = {
+            'No Action Indicated (NAI)': 'NAI',
+            'Voluntary Action Indicated (VAI)': 'VAI', 
+            'Official Action Indicated (OAI)': 'OAI',
+            'No Action Indicated': 'NAI',
+            'Voluntary Action Indicated': 'VAI',
+            'Official Action Indicated': 'OAI'
+        }
+        
+        simplified_classification = classification_map.get(most_recent_classification, most_recent_classification)
+        
+        # Find all OAI inspection dates
+        oai_dates = []
+        for inspection in sorted_inspections:
+            classification = inspection.get('classification', '')
+            if 'Official Action Indicated' in classification or 'OAI' in classification:
+                oai_date = parse_date(inspection.get('inspection_date', ''))
+                if oai_date and oai_date not in oai_dates:
+                    oai_dates.append(oai_date)
+        
+        # Build status string
+        if most_recent_date != 'Date unknown':
+            status = f"{simplified_classification} {most_recent_date}"
+        else:
+            status = simplified_classification
+        
+        # Add OAI dates if any exist and they're different from most recent
+        if oai_dates and (not oai_dates or oai_dates[0] != most_recent_date or simplified_classification != 'OAI'):
+            if len(oai_dates) == 1:
+                status += f" | OAI: {oai_dates[0]}"
+            else:
+                status += f" | OAI dates: {', '.join(oai_dates)}"
         
         return {
             'total_records': len(inspections),
             'most_recent_date': most_recent_date,
-            'most_recent_outcome': most_recent_outcome,
-            'status': f"Most recent: {most_recent_date} - {most_recent_outcome}"
+            'most_recent_outcome': simplified_classification,
+            'oai_dates': oai_dates,
+            'status': status
         }
 
     def format_inspection_details(self, inspections: List[Dict]) -> List[Dict]:
@@ -2150,6 +2577,667 @@ def main():
     
     Data sources: FDA databases, official product labeling, and establishment registrations.
     """)
+
+if __name__ == "__main__":
+    main()
+
+    def extract_labeler_from_product_name(self, product_name: str) -> str:
+        """Extract labeler name from product name when it's in brackets"""
+        try:
+            bracket_match = re.search(r'\\[([^\\]]+)\\]\\s*$', product_name)
+            if bracket_match:
+                return bracket_match.group(1).strip()
+            
+            if ' [' in product_name:
+                parts = product_name.split(' [')
+                if len(parts) > 1:
+                    labeler = parts[-1].replace(']', '').strip()
+                    return labeler
+                    
+            return 'Unknown'
+        except:
+            return 'Unknown'
+
+    def get_ndc_info_from_dailymed(self, ndc: str) -> Optional[ProductInfo]:
+        """Get NDC info from DailyMed with simple variant matching"""
+        try:
+            # Use simple variant generation
+            ndc_variants = self.normalize_ndc_for_matching(ndc)
+            
+            for ndc_variant in ndc_variants:
+                if not ndc_variant or len(ndc_variant) < 6:
+                    continue
+                    
+                try:
+                    search_url = f"{self.dailymed_base_url}/services/v2/spls.json"
+                    params = {'ndc': ndc_variant, 'page_size': 1}
+                    response = self.session.get(search_url, params=params)
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get('data'):
+                            spl_data = data['data'][0]
+                            product_name = spl_data.get('title', 'Unknown')
+                            
+                            # Try to get labeler from API first
+                            labeler_name = spl_data.get('labeler', 'Unknown')
+                            
+                            # If labeler is missing or generic, extract from product name
+                            if not labeler_name or labeler_name == 'Unknown' or labeler_name == '':
+                                labeler_name = self.extract_labeler_from_product_name(product_name)
+                            
+                            return ProductInfo(
+                                ndc=ndc,
+                                product_name=product_name,
+                                labeler_name=labeler_name,
+                                spl_id=spl_data.get('setid')
+                            )
+                except Exception as e:
+                    continue
+                    
+        except Exception as e:
+            pass
+
+        return None
+
+    def get_ndc_info_comprehensive(self, ndc: str) -> Optional[ProductInfo]:
+        """Get NDC info from multiple sources"""
+        dailymed_info = self.get_ndc_info_from_dailymed(ndc)
+        if dailymed_info:
+            return dailymed_info
+        return None
+
+    def lookup_fei_establishment(self, fei_number: str) -> Optional[Dict]:
+        """Look up establishment information using FEI number"""
+        try:
+            fei_variants = self._generate_all_id_variants(fei_number)
+            for fei_variant in fei_variants:
+                if fei_variant in self.fei_database:
+                    establishment_info = self.fei_database[fei_variant].copy()
+                    establishment_info['fei_number'] = fei_variant
+                    return establishment_info
+            return None
+        except Exception as e:
+            return None
+
+    def lookup_duns_establishment(self, duns_number: str) -> Optional[Dict]:
+        """Look up establishment information using DUNS number"""
+        try:
+            duns_variants = self._generate_all_id_variants(duns_number)
+            for duns_variant in duns_variants:
+                if duns_variant in self.duns_database:
+                    establishment_info = self.duns_database[duns_variant].copy()
+                    establishment_info['duns_number'] = duns_variant
+                    return establishment_info
+            return None
+        except Exception as e:
+            return None
+
+    def extract_ndc_specific_operations(self, section: str, target_ndc: str, establishment_name: str) -> Tuple[List[str], List[str]]:
+        """Extract operations - enhanced to find more operations"""
+        operations = []
+        quotes = []
+
+        ndc_variants = self.normalize_ndc_for_matching(target_ndc)
+
+        operation_codes = {
+            'C43360': 'Manufacture',
+            'C82401': 'Manufacture', 
+            'C25391': 'Analysis',
+            'C84731': 'Pack',
+            'C25392': 'Label',
+            'C48482': 'Repack',
+            'C73606': 'Relabel',
+            'C84732': 'Sterilize',
+            'C25394': 'API Manufacture',
+            'C43359': 'Manufacture'
+        }
+
+        performance_elements = re.findall(r'<performance[^>]*>.*?</performance>', section, re.DOTALL | re.IGNORECASE)
+        business_elements = re.findall(r'<businessOperation[^>]*>.*?</businessOperation>', section, re.DOTALL | re.IGNORECASE)
+        
+        all_elements = performance_elements + business_elements
+
+        for element in all_elements:
+            operation_found = None
+            operation_code_match = re.search(r'<code[^>]*code="([^"]*)"[^>]*displayName="([^"]*)"', element, re.IGNORECASE)
+            
+            if operation_code_match:
+                operation_code = operation_code_match.group(1)
+                if operation_code in operation_codes:
+                    operation_found = operation_codes[operation_code]
+
+            if not operation_found:
+                display_name_match = re.search(r'displayName="([^"]*)"', element, re.IGNORECASE)
+                if display_name_match:
+                    display_name = display_name_match.group(1).lower()
+                    if 'manufacture' in display_name and 'api' not in display_name:
+                        operation_found = 'Manufacture'
+                    elif 'api' in display_name and 'manufacture' in display_name:
+                        operation_found = 'API Manufacture'
+                    elif 'analysis' in display_name or 'test' in display_name:
+                        operation_found = 'Analysis'
+                    elif 'pack' in display_name:
+                        operation_found = 'Pack'
+                    elif 'label' in display_name:
+                        operation_found = 'Label'
+                    elif 'steriliz' in display_name:
+                        operation_found = 'Sterilize'
+
+            if operation_found:
+                if '<businessOperation' in element:
+                    if operation_found not in operations:
+                        operations.append(operation_found)
+                        quotes.append(f'Found {operation_found} operation in {establishment_name}')
+                else:
+                    ndc_code_pattern = r'<code[^>]*code="([^"]*)"[^>]*codeSystem="2\\.16\\.840\\.1\\.113883\\.6\\.69"'
+                    ndc_matches = re.findall(ndc_code_pattern, element, re.IGNORECASE)
+                    
+                    ndc_found_in_operation = False
+                    for ndc_code in ndc_matches:
+                        clean_ndc = ndc_code.strip()
+                        potential_variants = self.normalize_ndc_for_matching(clean_ndc)
+                        matching_variants = [v for v in potential_variants if v in ndc_variants]
+                        if matching_variants:
+                            ndc_found_in_operation = True
+                            break
+
+                    if ndc_found_in_operation and operation_found not in operations:
+                        operations.append(operation_found)
+                        quotes.append(f'Found {operation_found} operation for NDC {target_ndc} in {establishment_name}')
+
+        if 'API Manufacture' in operations and 'Manufacture' in operations:
+            operations.remove('Manufacture')
+
+        return operations, quotes
+
+    def extract_general_operations(self, section: str, establishment_name: str) -> Tuple[List[str], List[str]]:
+        """Extract general operations from an establishment section"""
+        operations = []
+        quotes = []
+
+        operation_codes = {
+            'C43360': 'Manufacture',
+            'C82401': 'Manufacture', 
+            'C25391': 'Analysis',
+            'C84731': 'Pack',
+            'C25392': 'Label',
+            'C48482': 'Repack',
+            'C73606': 'Relabel',
+            'C84732': 'Sterilize',
+            'C25394': 'API Manufacture',
+            'C43359': 'Manufacture'
+        }
+
+        operation_names = {
+            'manufacture': 'Manufacture',
+            'api manufacture': 'API Manufacture',
+            'analysis': 'Analysis',
+            'label': 'Label',
+            'pack': 'Pack',
+            'repack': 'Repack',
+            'relabel': 'Relabel',
+            'sterilize': 'Sterilize'
+        }
+
+        business_operations = re.findall(r'<businessOperation[^>]*>.*?</businessOperation>', section, re.DOTALL | re.IGNORECASE)
+
+        for bus_op in business_operations:
+            operation_found = None
+
+            display_name_match = re.search(r'displayName="([^"]*)"', bus_op, re.IGNORECASE)
+            if display_name_match:
+                display_name = display_name_match.group(1).lower()
+                if 'api' in display_name and 'manufacture' in display_name:
+                    operation_found = 'API Manufacture'
+                else:
+                    for name, operation in operation_names.items():
+                        if name in display_name and operation != 'API Manufacture':
+                            operation_found = operation
+                            break
+
+            if not operation_found:
+                for code, operation in operation_codes.items():
+                    if code in bus_op:
+                        operation_found = operation
+                        break
+
+            if operation_found and operation_found not in operations:
+                operations.append(operation_found)
+                quotes.append(f'Found {operation_found} operation in {establishment_name}')
+
+        if 'API Manufacture' in operations and 'Manufacture' in operations:
+            operations.remove('Manufacture')
+            quotes = [q for q in quotes if 'Manufacture operation' not in q or 'API Manufacture operation' in q]
+
+        return operations, quotes
+
+    def find_fei_duns_matches_in_spl(self, spl_id: str) -> List[FEIMatch]:
+        """ORIGINAL WORKING METHOD - don't change this!"""
+        matches = []
+        
+        try:
+            spl_url = f"{self.dailymed_base_url}/services/v2/spls/{spl_id}.xml"
+            response = self.session.get(spl_url)
+
+            if response.status_code != 200:
+                return matches
+
+            content = response.text
+            id_pattern = r'<id\\s+([^>]*extension="(\\d{7,15})"[^>]*)'
+            id_matches = re.findall(id_pattern, content, re.IGNORECASE)
+            
+            for full_match, extension in id_matches:
+                clean_extension = re.sub(r'[^\\d]', '', extension)
+                
+                fei_match_found = False
+                fei_variants = self._generate_all_id_variants(extension)
+                
+                for fei_key in fei_variants:
+                    if fei_key in self.fei_database:
+                        establishment_name = self.fei_database[fei_key].get('establishment_name', 'Unknown')
+                        
+                        match = FEIMatch(
+                            fei_number=clean_extension,
+                            xml_location="SPL Document",
+                            match_type='FEI_NUMBER',
+                            establishment_name=establishment_name
+                        )
+                        matches.append(match)
+                        fei_match_found = True
+                        break
+                
+                if not fei_match_found:
+                    duns_variants = self._generate_all_id_variants(extension)
+                    
+                    for duns_key in duns_variants:
+                        if duns_key in self.duns_database:
+                            establishment_name = self.duns_database[duns_key].get('establishment_name', 'Unknown')
+                            
+                            match = FEIMatch(
+                                fei_number=clean_extension,
+                                xml_location="SPL Document",
+                                match_type='DUNS_NUMBER',
+                                establishment_name=establishment_name
+                            )
+                            matches.append(match)
+                            break
+                            
+        except Exception as e:
+            pass
+            
+        return matches
+
+    def extract_establishments_with_fei(self, spl_id: str, target_ndc: str) -> Tuple[List[str], List[str], List[Dict]]:
+        """ORIGINAL WORKING METHOD - don't change this!"""
+        try:
+            spl_url = f"{self.dailymed_base_url}/services/v2/spls/{spl_id}.xml"
+            response = self.session.get(spl_url)
+
+            if response.status_code != 200:
+                return [], [], []
+
+            content = response.text
+            establishments_info = []
+            processed_numbers = set()
+
+            matches = self.find_fei_duns_matches_in_spl(spl_id)
+            establishment_sections = re.findall(r'<assignedEntity[^>]*>.*?</assignedEntity>', content, re.DOTALL | re.IGNORECASE)
+            
+            for match in matches:
+                if match.fei_number in processed_numbers:
+                    continue
+                
+                processed_numbers.add(match.fei_number)
+                
+                if match.match_type == 'FEI_NUMBER':
+                    establishment_info = self.lookup_fei_establishment(match.fei_number)
+                else:
+                    establishment_info = self.lookup_duns_establishment(match.fei_number)
+                
+                if establishment_info:
+                    establishment_operations = []
+                    establishment_quotes = []
+                    establishment_included = False
+                    
+                    for section in establishment_sections:
+                        if match.fei_number in section:
+                            name_match = re.search(r'<name[^>]*>([^<]+)</name>', section)
+                            section_establishment_name = name_match.group(1) if name_match else establishment_info.get('establishment_name', 'Unknown')
+                            
+                            ops, quotes = self.extract_ndc_specific_operations(section, target_ndc, section_establishment_name)
+                            
+                            if ops:
+                                establishment_operations.extend(ops)
+                                establishment_quotes.extend(quotes)
+                                establishment_included = True
+                            else:
+                                all_business_ops = re.findall(r'<businessOperation[^>]*>.*?</businessOperation>', section, re.DOTALL | re.IGNORECASE)
+                                if all_business_ops:
+                                    general_ops, general_quotes = self.extract_general_operations(section, section_establishment_name)
+                                    if general_ops:
+                                        establishment_operations.extend(general_ops)
+                                        establishment_quotes.extend([f"General operation (not NDC-specific): {q}" for q in general_quotes])
+                                        establishment_included = True
+                            break
+                    
+                    if establishment_included:
+                        establishment_info['xml_location'] = match.xml_location
+                        establishment_info['match_type'] = match.match_type
+                        establishment_info['xml_context'] = match.xml_context if hasattr(match, 'xml_context') else ''
+                        
+                        establishment_operations = list(dict.fromkeys(establishment_operations))
+                        establishment_quotes = list(dict.fromkeys(establishment_quotes))
+                        
+                        establishment_info['operations'] = establishment_operations
+                        establishment_info['quotes'] = establishment_quotes
+                        
+                        establishments_info.append(establishment_info)
+
+            return [], [], establishments_info
+
+        except Exception as e:
+            return [], [], []
+
+    def process_single_ndc(self, ndc: str) -> pd.DataFrame:
+        """Process a single NDC number with improved matching and deduplication"""
+        if not self.validate_ndc_format(ndc):
+            return pd.DataFrame()
+
+        normalized_ndc = self.normalize_ndc(ndc)
+        product_info = self.get_ndc_info_comprehensive(normalized_ndc)
+        
+        if not product_info:
+            return pd.DataFrame()
+
+        _, _, establishments_info = self.extract_establishments_with_fei(product_info.spl_id, ndc)
+
+        results = []
+        processed_ids = set()
+
+        if establishments_info:
+            for establishment in establishments_info:
+                unique_id = establishment.get('fei_number') or establishment.get('duns_number')
+                
+                if unique_id and unique_id in processed_ids:
+                    continue
+                
+                if unique_id:
+                    processed_ids.add(unique_id)
+
+                results.append({
+                    'ndc': ndc,
+                    'product_name': product_info.product_name,
+                    'labeler_name': product_info.labeler_name,
+                    'spl_id': product_info.spl_id,
+                    'fei_number': establishment.get('fei_number'),
+                    'duns_number': establishment.get('duns_number'),
+                    'establishment_name': establishment.get('establishment_name'),
+                    'firm_name': establishment.get('firm_name'),
+                    'address_line_1': establishment.get('address_line_1'),
+                    'city': establishment.get('city'),
+                    'state': establishment.get('state_province'),
+                    'country': establishment.get('country'),
+                    'postal_code': establishment.get('postal_code', ''),
+                    'latitude': establishment.get('latitude'),
+                    'longitude': establishment.get('longitude'),
+                    'spl_operations': ', '.join(establishment.get('operations', [])) if establishment.get('operations') else 'None found for this NDC',
+                    'spl_quotes': ' | '.join(establishment.get('quotes', [])),
+                    'search_method': establishment.get('search_method'),
+                    'xml_location': establishment.get('xml_location', 'Unknown'),
+                    'match_type': establishment.get('match_type', 'Unknown'),
+                    'xml_context': establishment.get('xml_context', '')
+                })
+        else:
+            results.append({
+                'ndc': ndc,
+                'product_name': product_info.product_name,
+                'labeler_name': product_info.labeler_name,
+                'spl_id': product_info.spl_id,
+                'fei_number': None,
+                'duns_number': None,
+                'establishment_name': None,
+                'firm_name': None,
+                'address_line_1': None,
+                'city': None,
+                'state': None,
+                'country': None,
+                'postal_code': '',
+                'latitude': None,
+                'longitude': None,
+                'spl_operations': None,
+                'spl_quotes': None,
+                'search_method': 'no_establishments_found',
+                'xml_location': None,
+                'match_type': None,
+                'xml_context': ''
+            })
+
+        return pd.DataFrame(results)
+
+def generate_individual_google_maps_link(row) -> str:
+    """Generate Google Maps link for a single establishment location"""
+    if (row['match_type'] == 'LABELER' and 
+        ('Address not available' in str(row['address_line_1']) or 
+         not row['address_line_1'] or 
+         row['address_line_1'] == 'Unknown')):
+        return None
+        
+    address_parts = []
+    if row['establishment_name'] and row['establishment_name'] != 'Unknown':
+        address_parts.append(row['establishment_name'])
+    if row['address_line_1'] and row['address_line_1'] != 'Unknown':
+        address_parts.append(row['address_line_1'])
+    if row['city'] and row['city'] != 'Unknown':
+        address_parts.append(row['city'])
+    if row['state'] and row['state'] != 'Unknown':
+        address_parts.append(row['state'])
+    if row['postal_code']:
+        address_parts.append(row['postal_code'])
+    if row['country'] and row['country'] != 'Unknown':
+        address_parts.append(row['country'])
+    
+    if not address_parts:
+        return None
+    
+    full_address = ', '.join(address_parts)
+    encoded_address = full_address.replace(' ', '+').replace(',', '%2C').replace('&', '%26')
+    return f"https://www.google.com/maps/search/{encoded_address}"
+
+def main():
+    st.set_page_config(
+        page_title="NDC Manufacturing Location Lookup", 
+        page_icon="💊",
+        layout="wide"
+    )
+    
+    st.title("💊 NDC Manufacturing Location Lookup")
+    st.markdown("### Find where your medications are manufactured")
+    st.markdown("Enter an NDC number to discover manufacturing establishments, locations, and operations using FDA data.")
+    
+    # Auto-load database and show status
+    if 'mapper' not in st.session_state:
+        with st.spinner("🔄 Loading FDA establishment database..."):
+            st.session_state.mapper = NDCToLocationMapper()
+            
+        if st.session_state.mapper.database_loaded:
+            st.success(f"✅ Database loaded successfully!")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("FEI Database Entries", f"{len(st.session_state.mapper.fei_database):,}")
+            with col2:
+                st.metric("DUNS Database Entries", f"{len(st.session_state.mapper.duns_database):,}")
+            with col3:
+                current_date = datetime.now().strftime("%Y-%m-%d")
+                st.metric("Database Updated", current_date)
+                
+        else:
+            st.error("❌ Could not load establishment database")
+            st.info("💡 Please ensure the database file is available in the repository or check GitHub connectivity")
+            st.stop()
+    
+    # NDC input section
+    st.markdown("---")
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        ndc_input = st.text_input(
+            "Enter NDC Number:", 
+            placeholder="0185-0674-01",
+            help="NDC format: 12345-678-90 or 1234567890"
+        )
+    with col2:
+        search_btn = st.button("🔍 Search", type="primary")
+    
+    # Example NDCs
+    st.markdown("**Try these examples:**")
+    examples = ["0185-0674-01", "50242-061-10", "63323-262-06", "63323-459-14"]
+    cols = st.columns(len(examples))
+    for i, ex in enumerate(examples):
+        with cols[i]:
+            if st.button(f"`{ex}`", key=f"ex_{i}"):
+                ndc_input = ex
+                search_btn = True
+    
+    # Search functionality
+    if search_btn and ndc_input:
+        with st.spinner(f"Looking up manufacturing locations for {ndc_input}..."):
+            try:
+                results_df = st.session_state.mapper.process_single_ndc(ndc_input)
+                
+                if len(results_df) > 0:
+                    first_row = results_df.iloc[0]
+                    
+                    if first_row['search_method'] == 'no_establishments_found':
+                        st.warning(f"⚠️ Found product information for NDC {ndc_input}, but no manufacturing establishments detected")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Product Name", first_row['product_name'])
+                            st.metric("NDC Number", first_row['ndc'])
+                        with col2:
+                            labeler = first_row['labeler_name'] if first_row['labeler_name'] != 'Unknown' else 'Not specified'
+                            st.metric("Labeler", labeler)
+                            
+                            if first_row['spl_id']:
+                                spl_url = f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={first_row['spl_id']}"
+                                st.markdown(f"📄 **SPL Document:** [View on DailyMed]({spl_url})")
+                        
+                        st.info("💡 This product may not have detailed establishment information in its SPL document, or the establishments may not be in the database.")
+                    
+                    else:
+                        # Full results with establishments
+                        st.success(f"✅ Found {len(results_df)} manufacturing establishments for NDC: {ndc_input}")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Product Name", first_row['product_name'])
+                            st.metric("NDC Number", first_row['ndc'])
+                        
+                        with col2:
+                            labeler = first_row['labeler_name'] if first_row['labeler_name'] != 'Unknown' else 'Not specified'
+                            st.metric("Labeler", labeler)
+                            
+                            if first_row['spl_id']:
+                                spl_url = f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={first_row['spl_id']}"
+                                st.markdown(f"📄 **SPL Document:** [View on DailyMed]({spl_url})")
+                        
+                        # Country distribution
+                        if len(results_df) > 1:
+                            country_counts = results_df['country'].value_counts()
+                            country_summary = ", ".join([f"{country}: {count}" for country, count in country_counts.items()])
+                            st.markdown(f"🌍 **Country Distribution:** {country_summary}")
+                        
+                        # Manufacturing establishments
+                        st.subheader(f"🏭 Manufacturing Establishments ({len(results_df)})")
+                        
+                        for idx, row in results_df.iterrows():
+                            with st.expander(f"Establishment {idx + 1}: {row['establishment_name']}", expanded=True):
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    if row['fei_number']:
+                                        st.write(f"**🔢 FEI Number:** {row['fei_number']}")
+                                    if row['duns_number']:
+                                        st.write(f"**🔢 DUNS Number:** {row['duns_number']}")
+                                    if row['firm_name'] and row['firm_name'] != 'Unknown':
+                                        st.write(f"**🏢 Firm Name:** {row['firm_name']}")
+                                
+                                with col2:
+                                    if row['country'] and row['country'] != 'Unknown':
+                                        st.write(f"**🌍 Country:** {row['country']}")
+                                    if row['spl_operations'] and row['spl_operations'] != 'None found for this NDC':
+                                        st.write(f"**⚙️ Operations:** {row['spl_operations']}")
+                                
+                                # Address
+                                if row['address_line_1'] and 'not available' not in str(row['address_line_1']).lower() and row['address_line_1'] != 'Unknown':
+                                    address_parts = []
+                                    if row['address_line_1'] != 'Unknown':
+                                        address_parts.append(row['address_line_1'])
+                                    if row['city'] != 'Unknown':
+                                        address_parts.append(row['city'])
+                                    if row['state'] != 'Unknown':
+                                        address_parts.append(row['state'])
+                                    if row['postal_code']:
+                                        address_parts.append(row['postal_code'])
+                                    if row['country'] != 'Unknown':
+                                        address_parts.append(row['country'])
+                                    
+                                    if address_parts:
+                                        full_address = ', '.join(address_parts)
+                                        st.write(f"**📍 Address:** {full_address}")
+                                        
+                                        maps_link = generate_individual_google_maps_link(row)
+                                        if maps_link:
+                                            st.markdown(f"🗺️ [View on Google Maps]({maps_link})")
+                        
+                        # Summary table
+                        st.subheader("📊 Summary Table")
+                        display_cols = ['establishment_name', 'firm_name', 'country', 'spl_operations']
+                        if any(results_df['fei_number'].notna()):
+                            display_cols.append('fei_number')
+                        if any(results_df['duns_number'].notna()):
+                            display_cols.append('duns_number')
+                        
+                        st.dataframe(results_df[display_cols], use_container_width=True)
+                        
+                else:
+                    st.error(f"❌ No results found for NDC: {ndc_input}")
+                    st.info("💡 This NDC may not exist in DailyMed database. Try checking the NDC format.")
+                    
+            except Exception as e:
+                st.error(f"❌ Error processing NDC: {str(e)}")
+                with st.expander("Debug Information"):
+                    st.exception(e)
+    
+    # Sidebar info
+    st.sidebar.title("About This Tool")
+    st.sidebar.markdown("""
+    This tool finds manufacturing establishments for NDC numbers by:
+    
+    🔍 **Looking up the drug** in FDA databases  
+    📄 **Analyzing SPL documents** for establishment info  
+    🏭 **Matching FEI/DUNS numbers** to locations  
+    🌍 **Showing global manufacturing** network  
+    
+    **Features:**
+    - ✅ Automatic database loading
+    - ✅ Improved NDC format matching
+    - ✅ Handles all NDC formats (4-4-2, 5-3-2, 5-4-2)
+    - ✅ Enhanced labeler extraction
+    - ✅ Clean, accurate establishment matching
+    """)
+    
+    if 'mapper' in st.session_state and st.session_state.mapper.database_loaded:
+        st.sidebar.markdown("---")
+        st.sidebar.metric("FEI Database Entries", f"{len(st.session_state.mapper.fei_database):,}")
+        st.sidebar.metric("DUNS Database Entries", f"{len(st.session_state.mapper.duns_database):,}")
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**Database Status:**")
+        st.sidebar.success("✅ Loaded and Ready")
+    
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("**Disclaimer:** For informational purposes only.")
 
 if __name__ == "__main__":
     main()

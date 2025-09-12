@@ -68,6 +68,10 @@ class NDCToLocationMapper:
             
             # Load inspection database  
             inspection_files = [
+                "inspection_outcomes_reg.csv.gz",
+                "data/inspection_outcomes_reg.csv.gz",
+                "./inspection_outcomes_reg.csv.gz", 
+                "../inspection_outcomes_reg.csv.gz",
                 "inspection_outcomes_reg.csv",
                 "data/inspection_outcomes_reg.csv",
                 "./inspection_outcomes_reg.csv", 

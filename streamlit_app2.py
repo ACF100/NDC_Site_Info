@@ -387,6 +387,30 @@ class NDCToLocationMapper:
             'status': status
         }
 
+    def debug_specific_fei(self, fei_number: str):
+        """Debug specific FEI to see all inspection data"""
+        st.write(f"**🔍 DEBUG: All inspections for FEI {fei_number}:**")
+        
+        fei_variants = self._generate_all_id_variants(fei_number)
+        found_any = False
+        
+        for variant in fei_variants:
+            if variant in self.inspection_database:
+                records = self.inspection_database[variant]
+                st.write(f"Found {len(records)} records for variant '{variant}'")
+                
+                # Show ALL records with dates and classifications
+                for i, record in enumerate(records):
+                    date = record.get('inspection_end_date', 'No date')
+                    classification = record.get('classification', 'No classification')
+                    st.write(f"  {i+1}. Date: {date} | Classification: {classification}")
+                
+                found_any = True
+                break
+        
+        if not found_any:
+            st.write("❌ No inspection records found for this FEI")
+
     def _generate_all_id_variants(self, id_number: str) -> List[str]:
         """Generate all possible variants of an ID number for matching"""
         clean_id = re.sub(r'[^\d]', '', str(id_number))
@@ -2028,6 +2052,7 @@ def main():
 
                                 # Show inspection information if available
                                 if row['fei_number']:
+                                    st.session_state.mapper.debug_specific_fei(row['fei_number'])
                                     inspections = st.session_state.mapper.get_facility_inspections(row['fei_number'])
                                     if inspections:
                                         inspection_summary = st.session_state.mapper.get_inspection_summary(inspections)

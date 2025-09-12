@@ -233,13 +233,19 @@ class NDCToLocationMapper:
             pass
 
     def load_inspection_database_from_spreadsheet(self, file_path: str):
-        """Load inspection outcomes database from spreadsheet"""
+        """Load inspection outcomes database from spreadsheet (supports .gz compression)"""
         try:
-            # Read the inspection data file
-            try:
-                df = pd.read_csv(file_path, dtype=str)
-            except:
-                df = pd.read_excel(file_path, dtype=str)
+            # Handle compressed files
+            if file_path.endswith('.gz'):
+                import gzip
+                with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+                    df = pd.read_csv(f, dtype=str)
+            else:
+                # Try to read the file with different engines
+                try:
+                    df = pd.read_csv(file_path, dtype=str)
+                except:
+                    df = pd.read_excel(file_path, dtype=str)
             
             # Create inspection database
             self.inspection_database = {}

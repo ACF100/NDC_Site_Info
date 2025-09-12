@@ -1576,41 +1576,42 @@ class NDCToLocationMapper:
 
         return pd.DataFrame(results)
 
-    def get_facility_inspections(self, fei_number: str) -> List[Dict]:
-        """Get inspection history - prioritize local database, fallback to API"""
+    def get_facility_inspections_from_database(self, fei_number: str) -> List[Dict]:
+        """Get inspection outcomes from local database"""
         inspections = []
         
         try:
-            # First try local inspection database
-            local_inspections = self.get_facility_inspections_from_database(fei_number)
-            if local_inspections:
-                inspections.extend(local_inspections)
+            # Generate FEI variants for lookup
+            fei_variants = self._generate_all_id_variants(fei_number)
             
-            # Also get enforcement records from API as supplementary data
-            enforcement_inspections = []
-            try:
-                enforcement_sources = [
-                    self.get_drug_inspections(fei_number),
-                    self.get_device_inspections(fei_number),
-                    self.get_food_inspections(fei_number),
-                    self.get_warning_letters(fei_number)
-                ]
-                
-                for source_inspections in enforcement_sources:
-                    if source_inspections:
-                        enforcement_inspections.extend(source_inspections)
-            except:
-                pass
+            for variant in fei_variants:
+                if variant in self.inspection_database:
+                    for record in self.inspection_database[variant]:
+                        inspection = {
+                            'inspection_type': 'FDA_INSPECTION',
+                            'inspection_date': record.get('inspection_end_date', ''),  # FIX: Map to inspection_date
+                            'inspection_id': record.get('inspection_id', ''),
+                            'classification': record.get('classification', 'Unknown'),
+                            'status': record.get('posted_citations', 'Unknown'),
+                            'fiscal_year': record.get('fiscal_year', ''),
+                            'project_area': record.get('project_area', ''),
+                            'product_type': record.get('product_type', ''),
+                            'firm_name': record.get('legal_name', ''),
+                            'city': record.get('city', ''),
+                            'state': record.get('state', ''),
+                            'country': record.get('country', ''),
+                            'additional_details': record.get('additional_details', ''),
+                            'fmd_145_date': record.get('fmd_145_date', ''),
+                            'source': 'FDA Inspection Database'
+                        }
+                        inspections.append(inspection)
+                    break  # Found records for this FEI
             
-            # Add enforcement records
-            inspections.extend(enforcement_inspections)
-            
-            # Remove duplicates and sort
-            unique_inspections = self.deduplicate_inspections(inspections)
-            return sorted(unique_inspections, key=lambda x: x.get('inspection_date', ''), reverse=True)
+            # Sort by inspection date (most recent first)
+            inspections.sort(key=lambda x: x.get('inspection_date', ''), reverse=True)
+            return inspections
             
         except Exception as e:
-            logger.error(f"Error getting inspections for FEI {fei_number}: {str(e)}")
             return []
 
     def get_drug_inspections(self, fei_number: str) -> List[Dict]:

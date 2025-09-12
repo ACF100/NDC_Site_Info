@@ -346,9 +346,9 @@ class NDCToLocationMapper:
         # Add OAI history if any exist and they're different from most recent
         if oai_dates and (len(oai_dates) > 1 or (len(oai_dates) == 1 and 'Unacceptable Compliance' not in categorized_classification)):
             if len(oai_dates) == 1:
-                status += f" | History of Unacceptable Compliance: {oai_dates[0]}"
+                status += f" | History of Unacceptable Compliance: Official Action Indicated {oai_dates[0]}"
             else:
-                status += f" | History of Unacceptable Compliance: {', '.join(oai_dates)}"
+                status += f" | History of Unacceptable Compliance: Official Action Indicated {', '.join(oai_dates)}"
         
         return {
             'total_records': len(inspections),

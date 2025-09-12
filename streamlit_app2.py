@@ -316,17 +316,17 @@ class NDCToLocationMapper:
         most_recent_date = parse_date(most_recent.get('inspection_date', 'Date unknown'))
         most_recent_classification = most_recent.get('classification', 'Outcome unknown')
         
-        # Simplify classification names
+        # Categorize classification names
         classification_map = {
-            'No Action Indicated (NAI)': 'NAI',
-            'Voluntary Action Indicated (VAI)': 'VAI', 
-            'Official Action Indicated (OAI)': 'OAI',
-            'No Action Indicated': 'NAI',
-            'Voluntary Action Indicated': 'VAI',
-            'Official Action Indicated': 'OAI'
+            'No Action Indicated (NAI)': 'Compliant (No Action Indicated)',
+            'Voluntary Action Indicated (VAI)': 'Compliant (Voluntary Action Indicated)', 
+            'Official Action Indicated (OAI)': 'Unacceptable Compliance (Official Action Indicated)',
+            'No Action Indicated': 'Compliant (No Action Indicated)',
+            'Voluntary Action Indicated': 'Compliant (Voluntary Action Indicated)',
+            'Official Action Indicated': 'Unacceptable Compliance (Official Action Indicated)'
         }
         
-        simplified_classification = classification_map.get(most_recent_classification, most_recent_classification)
+        categorized_classification = classification_map.get(most_recent_classification, most_recent_classification)
         
         # Find all OAI inspection dates
         oai_dates = []
@@ -339,21 +339,21 @@ class NDCToLocationMapper:
         
         # Build status string
         if most_recent_date != 'Date unknown':
-            status = f"{simplified_classification} {most_recent_date}"
+            status = f"{categorized_classification} {most_recent_date}"
         else:
-            status = simplified_classification
+            status = categorized_classification
         
-        # Add OAI dates if any exist and they're different from most recent
-        if oai_dates and (not oai_dates or oai_dates[0] != most_recent_date or simplified_classification != 'OAI'):
+        # Add OAI history if any exist and they're different from most recent
+        if oai_dates and (len(oai_dates) > 1 or (len(oai_dates) == 1 and 'Unacceptable Compliance' not in categorized_classification)):
             if len(oai_dates) == 1:
-                status += f" | OAI: {oai_dates[0]}"
+                status += f" | History of Unacceptable Compliance: {oai_dates[0]}"
             else:
-                status += f" | OAI dates: {', '.join(oai_dates)}"
+                status += f" | History of Unacceptable Compliance: {', '.join(oai_dates)}"
         
         return {
             'total_records': len(inspections),
             'most_recent_date': most_recent_date,
-            'most_recent_outcome': simplified_classification,
+            'most_recent_outcome': categorized_classification,
             'oai_dates': oai_dates,
             'status': status
         }
@@ -2000,7 +2000,7 @@ def main():
                                     inspections = st.session_state.mapper.get_facility_inspections(row['fei_number'])
                                     if inspections:
                                         inspection_summary = st.session_state.mapper.get_inspection_summary(inspections)
-                                        st.write(f"**🔍 Inspection:** {inspection_summary['status']}")
+                                        st.write(f"**🔍 Latest Inspection:** {inspection_summary['status']}")
                                 
                                 # Full address in address section
                                 full_address = generate_full_address(row)

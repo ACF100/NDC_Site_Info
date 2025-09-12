@@ -298,6 +298,29 @@ class NDCToLocationMapper:
         except Exception as e:
             return False
 
+    def check_inspection_field_names(self):
+        """Check what field names are in the inspection database"""
+        print("\n=== INSPECTION DATABASE FIELD NAMES ===")
+        
+        if not hasattr(self, 'inspection_database') or not self.inspection_database:
+            print("No inspection database loaded")
+            return
+        
+        # Get the first record from any FEI entry
+        for fei_key, records in self.inspection_database.items():
+            if records:
+                first_record = records[0]
+                print("Field names in inspection records:")
+                for i, field_name in enumerate(first_record.keys(), 1):
+                    print(f"  {i}. '{field_name}'")
+                print(f"\nSample values from first record:")
+                for field_name, value in first_record.items():
+                    print(f"  {field_name}: '{value}'")
+                break
+        
+        print("=== END FIELD NAMES ===\n")
+
+
     def get_inspection_summary(self, inspections: List[Dict]) -> Dict:
         """Generate simplified summary showing most recent inspection and any OAI dates"""
         if not inspections:
@@ -1903,6 +1926,7 @@ def main():
     # Auto-load database and show status (simplified)
     if 'mapper' not in st.session_state:
         st.session_state.mapper = NDCToLocationMapper()
+        st.session_state.mapper.check_inspection_field_names()
             
     if not st.session_state.mapper.database_loaded:
         st.error("❌ Could not load establishment database")

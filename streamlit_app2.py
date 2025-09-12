@@ -331,17 +331,8 @@ class NDCToLocationMapper:
         def parse_date(date_str):
             if not date_str or date_str == 'Date unknown' or date_str == 'nan' or str(date_str).strip() == '':
                 return ''
-            # Remove timestamp if present and handle different formats
+            # Remove timestamp if present
             date_only = str(date_str).split(' ')[0]
-            # Convert MM/DD/YYYY to YYYY-MM-DD for proper sorting
-            if '/' in date_only:
-                try:
-                    parts = date_only.split('/')
-                    if len(parts) == 3:
-                        # Assume MM/DD/YYYY format
-                        return f"{parts[2]}-{parts[0].zfill(2)}-{parts[1].zfill(2)}"
-                except:
-                    pass
             return date_only
         
         sorted_inspections = sorted(inspections, 
@@ -353,7 +344,7 @@ class NDCToLocationMapper:
         most_recent_date = parse_date(most_recent.get('inspection_date', 'Date unknown'))
         most_recent_classification = most_recent.get('classification', 'Outcome unknown')
         
-        # Categorize classification names
+        # Categorize classification names - FIXED to match your exact data format
         classification_map = {
             'No Action Indicated (NAI)': 'Compliant (No Action Indicated)',
             'Voluntary Action Indicated (VAI)': 'Compliant (Voluntary Action Indicated)', 
@@ -365,59 +356,32 @@ class NDCToLocationMapper:
         
         categorized_classification = classification_map.get(most_recent_classification, most_recent_classification)
         
-        # Find all OAI inspection dates - FIXED: More comprehensive search
+        # Find all OAI inspection dates - FIXED to match your exact format
         oai_dates = []
         for inspection in sorted_inspections:
             classification = inspection.get('classification', '').strip()
-            # Check for various OAI patterns
-            if (classification == 'Official Action Indicated (OAI)' or 
-                classification == 'Official Action Indicated' or
-                'Official Action Indicated' in classification or 
-                classification == 'OAI'):
+            # Check for OAI in your exact data format
+            if classification == 'Official Action Indicated (OAI)':
                 oai_date = parse_date(inspection.get('inspection_date', ''))
                 if oai_date and oai_date not in oai_dates:
                     oai_dates.append(oai_date)
         
-        # Build status string - convert back to display format
-        display_date = most_recent_date
-        if '/' not in most_recent_date and '-' in most_recent_date and most_recent_date != 'Date unknown':
-            # Convert YYYY-MM-DD back to MM/DD/YYYY for display
-            try:
-                parts = most_recent_date.split('-')
-                if len(parts) == 3:
-                    display_date = f"{parts[1].lstrip('0')}/{parts[2].lstrip('0')}/{parts[0]}"
-            except:
-                display_date = most_recent_date
-        
-        if display_date != 'Date unknown' and display_date:
-            status = f"{categorized_classification} {display_date}"
+        # Build status string
+        if most_recent_date != 'Date unknown' and most_recent_date:
+            status = f"{categorized_classification} {most_recent_date}"
         else:
             status = categorized_classification
         
-        # Add OAI history - FIXED: Show OAI history even if most recent is also OAI
+        # Add OAI history if any exist
         if oai_dates:
-            display_oai_dates = []
-            for oai_date in oai_dates:
-                if '/' not in oai_date and '-' in oai_date:
-                    try:
-                        parts = oai_date.split('-')
-                        if len(parts) == 3:
-                            display_oai_dates.append(f"{parts[1].lstrip('0')}/{parts[2].lstrip('0')}/{parts[0]}")
-                        else:
-                            display_oai_dates.append(oai_date)
-                    except:
-                        display_oai_dates.append(oai_date)
-                else:
-                    display_oai_dates.append(oai_date)
-            
-            if len(display_oai_dates) == 1:
-                status += f" | History of Unacceptable Compliance: Official Action Indicated {display_oai_dates[0]}"
+            if len(oai_dates) == 1:
+                status += f" | History of Unacceptable Compliance: Official Action Indicated {oai_dates[0]}"
             else:
-                status += f" | History of Unacceptable Compliance: Official Action Indicated {', '.join(display_oai_dates)}"
+                status += f" | History of Unacceptable Compliance: Official Action Indicated {', '.join(oai_dates)}"
         
         return {
             'total_records': len(inspections),
-            'most_recent_date': display_date,
+            'most_recent_date': most_recent_date,
             'most_recent_outcome': categorized_classification,
             'oai_dates': oai_dates,
             'status': status

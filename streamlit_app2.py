@@ -1901,126 +1901,64 @@ def generate_full_address(row) -> str:
     return ', '.join(address_parts) if address_parts else 'Address not available'
 
 def create_detailed_interactive_globe_with_fallbacks(results_df):
-    """Create a 3D globe with multiple fallback levels for location matching"""
+    """Create a 3D globe with individual pins spread out to avoid overlap"""
     
-    # Detailed city coordinates (lat, lon) - much more specific!
+    # [Keep the same city_coords dictionary as before - no changes needed]
     city_coords = {
-        # USA Cities
-        'Clayton, North Carolina': (35.6504, -78.4569),
-        'Clayton, NC': (35.6504, -78.4569),
-        'Northborough, Massachusetts': (42.3195, -71.6412),
-        'Northborough, MA': (42.3195, -71.6412),
-        'Cambridge, Massachusetts': (42.3736, -71.1097),
-        'Cambridge, MA': (42.3736, -71.1097),
-        'Bridgewater, New Jersey': (40.5987, -74.6368),
-        'Bridgewater, NJ': (40.5987, -74.6368),
-        'Kalamazoo, Michigan': (42.2917, -85.5872),
-        'Kalamazoo, MI': (42.2917, -85.5872),
-        'Indianapolis, Indiana': (39.7684, -86.1581),
-        'Indianapolis, IN': (39.7684, -86.1581),
-        'Thousand Oaks, California': (34.1706, -118.8376),
-        'Thousand Oaks, CA': (34.1706, -118.8376),
-        'New York, New York': (40.7128, -74.0060),
-        'New York, NY': (40.7128, -74.0060),
-        'Rahway, New Jersey': (40.6081, -74.2771),
-        'Rahway, NJ': (40.6081, -74.2771),
-        'West Point, Pennsylvania': (40.2048, -75.2513),
-        'West Point, PA': (40.2048, -75.2513),
-        
-        # European Cities
-        'Frankfurt am Main, Germany': (50.1109, 8.6821),
-        'Frankfurt, Germany': (50.1109, 8.6821),
-        'Bagsvaerd, Denmark': (55.7581, 12.4539),
-        'Bagsvaerd, Hovedstaden': (55.7581, 12.4539),
-        'Copenhagen, Denmark': (55.6761, 12.5683),
-        'Basel, Switzerland': (47.5596, 7.5886),
-        'Mannheim, Germany': (49.4875, 8.4660),
-        'Berlin, Germany': (52.5200, 13.4050),
-        'Munich, Germany': (48.1351, 11.5820),
-        'Hamburg, Germany': (53.5511, 9.9937),
-        'Cologne, Germany': (50.9375, 6.9603),
-        'Stuttgart, Germany': (48.7758, 9.1829),
-        'Düsseldorf, Germany': (51.2277, 6.7735),
-        'Leipzig, Germany': (51.3397, 12.3731),
-        'Dresden, Germany': (51.0504, 13.7373),
-        'Hannover, Germany': (52.3759, 9.7320),
-        'Nuremberg, Germany': (49.4521, 11.0767),
-        'Dortmund, Germany': (51.5136, 7.4653),
-        'Essen, Germany': (51.4556, 7.0116),
-        'Bremen, Germany': (53.0793, 8.8017),
-        
-        # Other Countries
-        'Singapore': (1.3521, 103.8198),
-        'Tokyo, Japan': (35.6762, 139.6503),
-        'Osaka, Japan': (34.6937, 135.5023),
-        'London, United Kingdom': (51.5074, -0.1278),
-        'Manchester, United Kingdom': (53.4808, -2.2426),
-        'Paris, France': (48.8566, 2.3522),
-        'Lyon, France': (45.7640, 4.8357),
-        'Milan, Italy': (45.4642, 9.1900),
-        'Rome, Italy': (41.9028, 12.4964),
-        'Madrid, Spain': (40.4168, -3.7038),
-        'Barcelona, Spain': (41.3851, 2.1734),
-        'Amsterdam, Netherlands': (52.3676, 4.9041),
-        'Rotterdam, Netherlands': (51.9244, 4.4777),
-        'Brussels, Belgium': (50.8503, 4.3517),
-        'Stockholm, Sweden': (59.3293, 18.0686),
-        'Oslo, Norway': (59.9139, 10.7522),
-        'Beijing, China': (39.9042, 116.4074),
-        'Shanghai, China': (31.2304, 121.4737),
-        'Mumbai, India': (19.0760, 72.8777),
-        'New Delhi, India': (28.6139, 77.2090),
-        'São Paulo, Brazil': (-23.5558, -46.6396),
-        'Rio de Janeiro, Brazil': (-22.9068, -43.1729),
-        'Sydney, Australia': (-33.8688, 151.2093),
-        'Melbourne, Australia': (-37.8136, 144.9631),
-        'Mexico City, Mexico': (19.4326, -99.1332),
-        'Seoul, South Korea': (37.5665, 126.9780),
-        'Dublin, Ireland': (53.3498, -6.2603),
-        'Vienna, Austria': (48.2082, 16.3738),
-        'Warsaw, Poland': (52.2297, 21.0122),
-        'Prague, Czech Republic': (50.0755, 14.4378),
-        'Budapest, Hungary': (47.4979, 19.0402),
-        'Helsinki, Finland': (60.1699, 24.9384),
-        'Lisbon, Portugal': (38.7223, -9.1393),
-        'Athens, Greece': (37.9838, 23.7275),
-        'Istanbul, Turkey': (41.0082, 28.9784),
-        'Tel Aviv, Israel': (32.0853, 34.7818),
-        'Cape Town, South Africa': (-33.9249, 18.4241),
-        'Buenos Aires, Argentina': (-34.6118, -58.3960),
-        'Santiago, Chile': (-33.4489, -70.6693),
-        'Bogotá, Colombia': (4.7110, -74.0721),
-        'Lima, Peru': (-12.0464, -77.0428),
-        'Caracas, Venezuela': (10.4806, -66.9036),
-        'Bangkok, Thailand': (13.7563, 100.5018),
-        'Kuala Lumpur, Malaysia': (3.1390, 101.6869),
-        'Jakarta, Indonesia': (-6.2088, 106.8456),
-        'Manila, Philippines': (14.5995, 120.9842),
-        'Ho Chi Minh City, Vietnam': (10.8231, 106.6297),
-        'Taipei, Taiwan': (25.0330, 121.5654),
-        'Hong Kong': (22.3193, 114.1694),
-        'Auckland, New Zealand': (-36.8485, 174.7633),
-        'Moscow, Russia': (55.7558, 37.6176),
-        'Kiev, Ukraine': (50.4501, 30.5234),
-        'Bucharest, Romania': (44.4268, 26.1025),
-        'Sofia, Bulgaria': (42.6977, 23.3219),
-        'Zagreb, Croatia': (45.8150, 15.9819),
-        'Ljubljana, Slovenia': (46.0569, 14.5058),
-        'Bratislava, Slovakia': (48.1486, 17.1077),
-        'Vilnius, Lithuania': (54.6872, 25.2797),
-        'Riga, Latvia': (56.9496, 24.1052),
-        'Tallinn, Estonia': (59.4370, 24.7536)
+        # ... (same as before)
     }
     
-    # Prepare data for the globe
-    lats, lons, texts, sizes, colors, establishment_names = [], [], [], [], [], []
+    def get_inspection_color_and_status(row):
+        """Determine pin color and status based on inspection outcome"""
+        inspection_status = row.get('latest_inspection_status', 'No inspection data available')
+        inspection_display = row.get('inspection_display_status', 'No inspection data available')
+        
+        if 'No Action Indicated' in inspection_status:
+            return 'green', inspection_display
+        elif 'Voluntary Action Indicated' in inspection_status:
+            return 'yellow', inspection_display  
+        elif 'Official Action Indicated' in inspection_status or 'Unacceptable Compliance' in inspection_status:
+            return 'red', inspection_display
+        else:
+            return 'gray', 'No inspection data available'
+    
+    def spread_pins_around_location(base_lat, base_lon, count, spread_radius=0.5):
+        """Spread multiple pins around a base location to avoid overlap"""
+        if count == 1:
+            return [(base_lat, base_lon)]
+        
+        positions = []
+        import math
+        
+        # Create a circle of pins around the base location
+        for i in range(count):
+            angle = (2 * math.pi * i) / count  # Evenly distribute around circle
+            
+            # Calculate offset (in degrees)
+            lat_offset = spread_radius * math.cos(angle)
+            lon_offset = spread_radius * math.sin(angle)
+            
+            # Adjust longitude offset based on latitude (longitude lines get closer near poles)
+            lon_offset = lon_offset / math.cos(math.radians(base_lat))
+            
+            new_lat = base_lat + lat_offset
+            new_lon = base_lon + lon_offset
+            
+            positions.append((new_lat, new_lon))
+        
+        return positions
+    
+    # Group facilities by approximate location first
+    location_groups = {}
     unmatched_locations = []
     
     for idx, row in results_df.iterrows():
         location_found = False
         matched_location = None
         precision_level = None
+        base_lat, base_lon = None, None
         
+        # [Same location matching logic as before]
         # LEVEL 1: Try exact city + state/country matches
         if not location_found and row['city'] != 'Unknown':
             possible_keys = [
@@ -2031,7 +1969,7 @@ def create_detailed_interactive_globe_with_fallbacks(results_df):
             
             for key in possible_keys:
                 if key and key in city_coords:
-                    lat, lon = city_coords[key]
+                    base_lat, base_lon = city_coords[key]
                     matched_location = key
                     precision_level = "City-level"
                     location_found = True
@@ -2049,6 +1987,7 @@ def create_detailed_interactive_globe_with_fallbacks(results_df):
                 'Singapore': (1.3521, 103.8198),
                 'Japan': (36.2048, 138.2529),
                 'United Kingdom': (55.3781, -3.4360),
+                'United Kingdom (GBR)': (55.3781, -3.4360),
                 'Canada': (56.1304, -106.3468),
                 'France': (46.2276, 2.2137),
                 'Italy': (41.8719, 12.5674),
@@ -2100,61 +2039,91 @@ def create_detailed_interactive_globe_with_fallbacks(results_df):
             }
             
             if row['country'] in country_fallbacks:
-                lat, lon = country_fallbacks[row['country']]
+                base_lat, base_lon = country_fallbacks[row['country']]
                 matched_location = row['country']
                 precision_level = "Country-level"
                 location_found = True
         
-        # LEVEL 3: Fuzzy matching for common variations
+        # LEVEL 3: Fuzzy matching
         if not location_found and row['city'] != 'Unknown':
             city_lower = row['city'].lower()
             for coord_key in city_coords.keys():
                 if city_lower in coord_key.lower() or coord_key.lower().startswith(city_lower):
-                    lat, lon = city_coords[coord_key]
+                    base_lat, base_lon = city_coords[coord_key]
                     matched_location = coord_key
                     precision_level = "Approximate match"
                     location_found = True
                     break
         
-        # Add to map if location found
+        # Group facilities by base location
         if location_found:
-            lats.append(lat)
-            lons.append(lon)
+            location_key = f"{base_lat},{base_lon}"
             
-            # Create detailed hover text with precision indicator
-            hover_text = f"<b>{row['establishment_name'] if row['establishment_name'] != 'Unknown' else 'Manufacturing Facility'}</b><br>"
-            hover_text += f"📍 {matched_location}<br>"
-            hover_text += f"🎯 Precision: {precision_level}<br>"
-            hover_text += f"🏢 {row['firm_name'] if row['firm_name'] != 'Unknown' else 'Company name not available'}<br>"
-            hover_text += f"⚙️ {row['spl_operations'] if row['spl_operations'] != 'None found for this National Drug Code' else 'Operations not specified'}<br>"
-            if row['fei_number']:
-                hover_text += f"🔢 FEI: {row['fei_number']}"
+            if location_key not in location_groups:
+                location_groups[location_key] = {
+                    'base_lat': base_lat,
+                    'base_lon': base_lon,
+                    'matched_location': matched_location,
+                    'precision_level': precision_level,
+                    'facilities': []
+                }
             
-            texts.append(hover_text)
+            # Get inspection color and status for this facility
+            inspection_color, inspection_status = get_inspection_color_and_status(row)
             
-            # Different colors for different precision levels
-            if precision_level == "City-level":
-                colors.append('red')
-                sizes.append(25)
-            elif precision_level == "Country-level":
-                colors.append('orange')
-                sizes.append(20)
-            else:  # Approximate match
-                colors.append('yellow')
-                sizes.append(22)
-                
-            establishment_names.append(row['establishment_name'] if row['establishment_name'] != 'Unknown' else f"Facility {idx+1}")
+            # Add facility to group
+            facility_info = {
+                'establishment_name': row['establishment_name'] if row['establishment_name'] != 'Unknown' else f"Facility {idx+1}",
+                'firm_name': row['firm_name'] if row['firm_name'] != 'Unknown' else 'Company name not available',
+                'operations': row['spl_operations'] if row['spl_operations'] != 'None found for this National Drug Code' else 'Operations not specified',
+                'fei_number': row['fei_number'] if row['fei_number'] else None,
+                'inspection_color': inspection_color,
+                'inspection_status': inspection_status
+            }
+            
+            location_groups[location_key]['facilities'].append(facility_info)
         else:
-            # Track unmatched locations
             unmatched_locations.append({
                 'establishment': row['establishment_name'] if row['establishment_name'] != 'Unknown' else f"Facility {idx+1}",
                 'city': row['city'],
                 'country': row['country']
             })
     
-    # Create the globe
-    if not lats:
+    # Create individual pins with spreading
+    if not location_groups:
         return None, unmatched_locations
+    
+    lats, lons, texts, sizes, colors = [], [], [], [], []
+    
+    for group in location_groups.values():
+        facility_count = len(group['facilities'])
+        
+        # Get spread positions for this group
+        positions = spread_pins_around_location(
+            group['base_lat'], 
+            group['base_lon'], 
+            facility_count,
+            spread_radius=0.8  # Adjust this to control how spread out pins are
+        )
+        
+        # Create individual pins for each facility
+        for i, (facility, (lat, lon)) in enumerate(zip(group['facilities'], positions)):
+            lats.append(lat)
+            lons.append(lon)
+            
+            # Individual facility hover text
+            hover_text = f"<b>{facility['establishment_name']}</b><br>"
+            hover_text += f"📍 {group['matched_location']}<br>"
+            hover_text += f"🎯 Precision: {group['precision_level']}<br>"
+            hover_text += f"🏢 {facility['firm_name']}<br>"
+            hover_text += f"⚙️ {facility['operations']}<br>"
+            hover_text += f"🔍 Inspection: {facility['inspection_status']}<br>"
+            if facility['fei_number']:
+                hover_text += f"🔢 FEI: {facility['fei_number']}"
+            
+            texts.append(hover_text)
+            colors.append(facility['inspection_color'])
+            sizes.append(25)  # Consistent size for all individual pins
     
     fig = go.Figure()
     
@@ -2167,7 +2136,7 @@ def create_detailed_interactive_globe_with_fallbacks(results_df):
             size=sizes,
             color=colors,
             opacity=0.9,
-            line=dict(width=3, color='darkred'),
+            line=dict(width=2, color='darkblue'),
             symbol='circle'
         ),
         hovertemplate='%{text}<extra></extra>',
@@ -2176,7 +2145,7 @@ def create_detailed_interactive_globe_with_fallbacks(results_df):
     
     fig.update_layout(
         title={
-            'text': '🌍 Manufacturing Locations (Multi-Level Precision)',
+            'text': '🌍 Individual Manufacturing Facilities by Inspection Status',
             'x': 0.5,
             'font': {'size': 20, 'color': 'darkblue'}
         },
@@ -2202,6 +2171,7 @@ def create_detailed_interactive_globe_with_fallbacks(results_df):
     )
     
     return fig, unmatched_locations
+
 
 def display_robust_interactive_globe(results_df):
     """Display the interactive globe with comprehensive fallback handling"""

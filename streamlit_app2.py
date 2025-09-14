@@ -2115,39 +2115,24 @@ def create_simple_world_map(results_df):
         'Trinidad and Tobago': 'TTO',
         'Barbados': 'BRB',
         'Bahamas': 'BHS',
-        'Belize': 'BLZ',
         'Saint Lucia': 'LCA',
         'Grenada': 'GRD',
         'Saint Vincent and the Grenadines': 'VCT',
         'Antigua and Barbuda': 'ATG',
         'Dominica': 'DMA',
-        'Saint Kitts and Nevis': 'KNA',
-        
-        # Common variations and alternative names
-        'UK': 'GBR',
-        'US': 'USA',
-        'UAE': 'ARE',
-        'Czech Republic': 'CZE',
-        'South Korea': 'KOR',
-        'North Korea': 'PRK',
-        'Congo': 'COG',
-        'DRC': 'COD',
-        'Burma': 'MMR',
-        'Ivory Coast': 'CIV',
-        'Swaziland': 'SWZ'
+        'Saint Kitts and Nevis': 'KNA'
     }
     
     country_counts['iso'] = country_counts['country'].map(country_iso)
     
-    # Separate mapped and unmapped countries
+    # Filter out unmapped countries for the map
     mapped_countries = country_counts[country_counts['iso'].notna()]
-    unmapped_countries = country_counts[country_counts['iso'].isna()]
     
-    # Create the map only if we have mappable countries
+    # Return None if no countries can be mapped
     if len(mapped_countries) == 0:
-        return None, unmapped_countries
+        return None
     
-    # Use a darker color scale that shows single facilities better
+    # Create the figure
     fig = go.Figure(data=go.Choropleth(
         locations=mapped_countries['iso'],
         z=mapped_countries['facility_count'],
@@ -2165,7 +2150,7 @@ def create_simple_world_map(results_df):
         height=400
     )
     
-    return fig, unmapped_countries
+    return fig
 
 def main():
     st.set_page_config(

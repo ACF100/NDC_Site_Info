@@ -1928,6 +1928,7 @@ def create_simple_world_map(results_df):
         'Italy': 'ITA',
         'Spain': 'ESP',
         'United Kingdom': 'GBR', 'UK': 'GBR', 'Britain': 'GBR',
+        'United Kingdom (GBR)': 'GBR',  # ADD THIS LINE - fixes your UK issue
         'Netherlands': 'NLD', 'Holland': 'NLD',
         'Belgium': 'BEL',
         'Switzerland': 'CHE',
@@ -2132,16 +2133,34 @@ def create_simple_world_map(results_df):
     if len(mapped_countries) == 0:
         return None
     
-    # Create the figure
+    # Get the range of facility counts for better color scaling
+    min_facilities = mapped_countries['facility_count'].min()
+    max_facilities = mapped_countries['facility_count'].max()
+    
+    # Create custom color scale - light blue to dark blue
+    # This ensures 1 facility = light blue, more facilities = progressively darker
     fig = go.Figure(data=go.Choropleth(
         locations=mapped_countries['iso'],
         z=mapped_countries['facility_count'],
         text=mapped_countries['country'],
-        colorscale=[[0, '#08519c'], [1, '#3182bd']],  # Darker blue scale
-        colorbar_title="Facilities",
+        colorscale=[
+            [0.0, '#E3F2FD'],  # Very light blue for 1 facility
+            [0.2, '#BBDEFB'],  # Light blue
+            [0.4, '#90CAF9'],  # Medium light blue
+            [0.6, '#64B5F6'],  # Medium blue
+            [0.8, '#42A5F5'],  # Medium dark blue
+            [1.0, '#1E88E5']   # Dark blue for highest count
+        ],
+        colorbar=dict(
+            title="Facilities",
+            tickmode='linear',
+            tick0=min_facilities,
+            dtick=1,  # Show only whole numbers
+            tickformat='d'  # Integer format
+        ),
         hovertemplate='<b>%{text}</b><br>Facilities: %{z}<extra></extra>',
-        zmin=1,  # Force minimum to 1 so single facilities show up dark
-        zmax=max(mapped_countries['facility_count'].max(), 2)  # Ensure range is at least 1-2
+        zmin=min_facilities,  # Start scale at minimum actual value
+        zmax=max_facilities   # End scale at maximum actual value
     ))
     
     fig.update_layout(

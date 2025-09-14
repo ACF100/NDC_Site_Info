@@ -1900,338 +1900,53 @@ def generate_full_address(row) -> str:
     
     return ', '.join(address_parts) if address_parts else 'Address not available'
 
-def create_detailed_interactive_globe_with_fallbacks(results_df):
-    """Create a 3D globe with individual pins spread out to avoid overlap"""
+def create_simple_world_map(results_df):
+    """Simple choropleth map showing facilities by country"""
+    if len(results_df) == 0:
+        return None
     
-    # [Keep the same city_coords dictionary as before - no changes needed]
-    city_coords = {
-        # ... (same as before)
+    country_counts = results_df['country'].value_counts().reset_index()
+    country_counts.columns = ['country', 'facility_count']
+    
+    # Simple country to ISO mapping
+    country_iso = {
+        'USA': 'USA', 'United States': 'USA',
+        'Germany': 'DEU', 'Switzerland': 'CHE', 'Denmark': 'DNK',
+        'Singapore': 'SGP', 'United Kingdom': 'GBR', 'Canada': 'CAN',
+        'France': 'FRA', 'Italy': 'ITA', 'Japan': 'JPN', 'China': 'CHN',
+        'India': 'IND', 'Brazil': 'BRA', 'Australia': 'AUS', 'Mexico': 'MEX',
+        'Netherlands': 'NLD', 'Belgium': 'BEL', 'Spain': 'ESP', 'Sweden': 'SWE',
+        'Norway': 'NOR', 'Ireland': 'IRL', 'Austria': 'AUT', 'Poland': 'POL',
+        'Czech Republic': 'CZE', 'Hungary': 'HUN', 'Finland': 'FIN',
+        'Portugal': 'PRT', 'Greece': 'GRC', 'Turkey': 'TUR', 'Israel': 'ISR',
+        'South Africa': 'ZAF', 'Argentina': 'ARG', 'Chile': 'CHL',
+        'Colombia': 'COL', 'Peru': 'PER', 'Venezuela': 'VEN', 'Thailand': 'THA',
+        'Malaysia': 'MYS', 'Indonesia': 'IDN', 'Philippines': 'PHL',
+        'Vietnam': 'VNM', 'Taiwan': 'TWN', 'Hong Kong': 'HKG',
+        'New Zealand': 'NZL', 'Russia': 'RUS', 'Ukraine': 'UKR',
+        'Romania': 'ROU', 'Bulgaria': 'BGR', 'Croatia': 'HRV',
+        'Slovenia': 'SVN', 'Slovakia': 'SVK', 'Lithuania': 'LTU',
+        'Latvia': 'LVA', 'Estonia': 'EST', 'South Korea': 'KOR'
     }
     
-    def get_inspection_color_and_status(row):
-        """Determine pin color and status based on inspection outcome"""
-        inspection_status = row.get('latest_inspection_status', 'No inspection data available')
-        inspection_display = row.get('inspection_display_status', 'No inspection data available')
-        
-        if 'No Action Indicated' in inspection_status:
-            return 'green', inspection_display
-        elif 'Voluntary Action Indicated' in inspection_status:
-            return 'yellow', inspection_display  
-        elif 'Official Action Indicated' in inspection_status or 'Unacceptable Compliance' in inspection_status:
-            return 'red', inspection_display
-        else:
-            return 'gray', 'No inspection data available'
+    country_counts['iso'] = country_counts['country'].map(country_iso)
     
-    def spread_pins_around_location(base_lat, base_lon, count, spread_radius=0.5):
-        """Spread multiple pins around a base location to avoid overlap"""
-        if count == 1:
-            return [(base_lat, base_lon)]
-        
-        positions = []
-        import math
-        
-        # Create a circle of pins around the base location
-        for i in range(count):
-            angle = (2 * math.pi * i) / count  # Evenly distribute around circle
-            
-            # Calculate offset (in degrees)
-            lat_offset = spread_radius * math.cos(angle)
-            lon_offset = spread_radius * math.sin(angle)
-            
-            # Adjust longitude offset based on latitude (longitude lines get closer near poles)
-            lon_offset = lon_offset / math.cos(math.radians(base_lat))
-            
-            new_lat = base_lat + lat_offset
-            new_lon = base_lon + lon_offset
-            
-            positions.append((new_lat, new_lon))
-        
-        return positions
-    
-    # Group facilities by approximate location first
-    location_groups = {}
-    unmatched_locations = []
-    
-    for idx, row in results_df.iterrows():
-        location_found = False
-        matched_location = None
-        precision_level = None
-        base_lat, base_lon = None, None
-        
-        # [Same location matching logic as before]
-        # LEVEL 1: Try exact city + state/country matches
-        if not location_found and row['city'] != 'Unknown':
-            possible_keys = [
-                f"{row['city']}, {row['state']}" if row['state'] != 'Unknown' else None,
-                f"{row['city']}, {row['country']}" if row['country'] != 'Unknown' else None,
-                row['city']
-            ]
-            
-            for key in possible_keys:
-                if key and key in city_coords:
-                    base_lat, base_lon = city_coords[key]
-                    matched_location = key
-                    precision_level = "City-level"
-                    location_found = True
-                    break
-        
-        # LEVEL 2: Try country-level fallback
-        if not location_found:
-            country_fallbacks = {
-                'USA': (39.8283, -98.5795),
-                'United States': (39.8283, -98.5795),
-                'Germany': (51.1657, 10.4515),
-                'Denmark': (56.2639, 9.5018),
-                'Denmark (DNK)': (56.2639, 9.5018),
-                'Switzerland': (46.8182, 8.2275),
-                'Singapore': (1.3521, 103.8198),
-                'Japan': (36.2048, 138.2529),
-                'United Kingdom': (55.3781, -3.4360),
-                'United Kingdom (GBR)': (55.3781, -3.4360),
-                'Canada': (56.1304, -106.3468),
-                'France': (46.2276, 2.2137),
-                'Italy': (41.8719, 12.5674),
-                'Spain': (40.4637, -3.7492),
-                'Netherlands': (52.1326, 5.2913),
-                'Belgium': (50.5039, 4.4699),
-                'Sweden': (60.1282, 18.6435),
-                'Norway': (60.4720, 8.4689),
-                'China': (35.8617, 104.1954),
-                'India': (20.5937, 78.9629),
-                'Brazil': (-14.2350, -51.9253),
-                'Australia': (-25.2744, 133.7751),
-                'Mexico': (23.6345, -102.5528),
-                'South Korea': (35.9078, 127.7669),
-                'Ireland': (53.4129, -8.2439),
-                'Austria': (47.5162, 14.5501),
-                'Poland': (51.9194, 19.1451),
-                'Czech Republic': (49.8175, 15.4730),
-                'Hungary': (47.1625, 19.5033),
-                'Finland': (61.9241, 25.7482),
-                'Portugal': (39.3999, -8.2245),
-                'Greece': (39.0742, 21.8243),
-                'Turkey': (38.9637, 35.2433),
-                'Israel': (31.0461, 34.8516),
-                'South Africa': (-30.5595, 22.9375),
-                'Argentina': (-38.4161, -63.6167),
-                'Chile': (-35.6751, -71.5430),
-                'Colombia': (4.5709, -74.2973),
-                'Peru': (-9.1900, -75.0152),
-                'Venezuela': (6.4238, -66.5897),
-                'Thailand': (15.8700, 100.9925),
-                'Malaysia': (4.2105, 101.9758),
-                'Indonesia': (-0.7893, 113.9213),
-                'Philippines': (12.8797, 121.7740),
-                'Vietnam': (14.0583, 108.2772),
-                'Taiwan': (23.6978, 120.9605),
-                'Hong Kong': (22.3193, 114.1694),
-                'New Zealand': (-40.9006, 174.8860),
-                'Russia': (61.5240, 105.3188),
-                'Ukraine': (48.3794, 31.1656),
-                'Romania': (45.9432, 24.9668),
-                'Bulgaria': (42.7339, 25.4858),
-                'Croatia': (45.1000, 15.2000),
-                'Slovenia': (46.1512, 14.9955),
-                'Slovakia': (48.6690, 19.6990),
-                'Lithuania': (55.1694, 23.8813),
-                'Latvia': (56.8796, 24.6032),
-                'Estonia': (58.5953, 25.0136)
-            }
-            
-            if row['country'] in country_fallbacks:
-                base_lat, base_lon = country_fallbacks[row['country']]
-                matched_location = row['country']
-                precision_level = "Country-level"
-                location_found = True
-        
-        # LEVEL 3: Fuzzy matching
-        if not location_found and row['city'] != 'Unknown':
-            city_lower = row['city'].lower()
-            for coord_key in city_coords.keys():
-                if city_lower in coord_key.lower() or coord_key.lower().startswith(city_lower):
-                    base_lat, base_lon = city_coords[coord_key]
-                    matched_location = coord_key
-                    precision_level = "Approximate match"
-                    location_found = True
-                    break
-        
-        # Group facilities by base location
-        if location_found:
-            location_key = f"{base_lat},{base_lon}"
-            
-            if location_key not in location_groups:
-                location_groups[location_key] = {
-                    'base_lat': base_lat,
-                    'base_lon': base_lon,
-                    'matched_location': matched_location,
-                    'precision_level': precision_level,
-                    'facilities': []
-                }
-            
-            # Get inspection color and status for this facility
-            inspection_color, inspection_status = get_inspection_color_and_status(row)
-            
-            # Add facility to group
-            facility_info = {
-                'establishment_name': row['establishment_name'] if row['establishment_name'] != 'Unknown' else f"Facility {idx+1}",
-                'firm_name': row['firm_name'] if row['firm_name'] != 'Unknown' else 'Company name not available',
-                'operations': row['spl_operations'] if row['spl_operations'] != 'None found for this National Drug Code' else 'Operations not specified',
-                'fei_number': row['fei_number'] if row['fei_number'] else None,
-                'inspection_color': inspection_color,
-                'inspection_status': inspection_status
-            }
-            
-            location_groups[location_key]['facilities'].append(facility_info)
-        else:
-            unmatched_locations.append({
-                'establishment': row['establishment_name'] if row['establishment_name'] != 'Unknown' else f"Facility {idx+1}",
-                'city': row['city'],
-                'country': row['country']
-            })
-    
-    # Create individual pins with spreading
-    if not location_groups:
-        return None, unmatched_locations
-    
-    lats, lons, texts, sizes, colors = [], [], [], [], []
-    
-    for group in location_groups.values():
-        facility_count = len(group['facilities'])
-        
-        # Get spread positions for this group
-        positions = spread_pins_around_location(
-            group['base_lat'], 
-            group['base_lon'], 
-            facility_count,
-            spread_radius=0.8  # Adjust this to control how spread out pins are
-        )
-        
-        # Create individual pins for each facility
-        for i, (facility, (lat, lon)) in enumerate(zip(group['facilities'], positions)):
-            lats.append(lat)
-            lons.append(lon)
-            
-            # Individual facility hover text
-            hover_text = f"<b>{facility['establishment_name']}</b><br>"
-            hover_text += f"📍 {group['matched_location']}<br>"
-            hover_text += f"🎯 Precision: {group['precision_level']}<br>"
-            hover_text += f"🏢 {facility['firm_name']}<br>"
-            hover_text += f"⚙️ {facility['operations']}<br>"
-            hover_text += f"🔍 Inspection: {facility['inspection_status']}<br>"
-            if facility['fei_number']:
-                hover_text += f"🔢 FEI: {facility['fei_number']}"
-            
-            texts.append(hover_text)
-            colors.append(facility['inspection_color'])
-            sizes.append(25)  # Consistent size for all individual pins
-    
-    fig = go.Figure()
-    
-    fig.add_trace(go.Scattergeo(
-        lon=lons,
-        lat=lats,
-        text=texts,
-        mode='markers',
-        marker=dict(
-            size=sizes,
-            color=colors,
-            opacity=0.9,
-            line=dict(width=2, color='darkblue'),
-            symbol='circle'
-        ),
-        hovertemplate='%{text}<extra></extra>',
-        name='Manufacturing Facilities'
+    fig = go.Figure(data=go.Choropleth(
+        locations=country_counts['iso'],
+        z=country_counts['facility_count'],
+        text=country_counts['country'],
+        colorscale='Blues',
+        colorbar_title="Facilities",
+        hovertemplate='<b>%{text}</b><br>Facilities: %{z}<extra></extra>'
     ))
     
     fig.update_layout(
-        title={
-            'text': '🌍 Individual Manufacturing Facilities by Inspection Status',
-            'x': 0.5,
-            'font': {'size': 20, 'color': 'darkblue'}
-        },
-        geo=dict(
-            projection_type='orthographic',
-            showland=True,
-            landcolor='lightgreen',
-            showocean=True,
-            oceancolor='lightblue',
-            showlakes=True,
-            lakecolor='blue',
-            showcountries=True,
-            countrycolor='white',
-            countrywidth=1,
-            showframe=False,
-            showcoastlines=True,
-            coastlinecolor='darkgreen',
-            projection_rotation=dict(lon=0, lat=0, roll=0),
-            resolution=50
-        ),
-        height=700,
-        margin=dict(l=0, r=0, t=50, b=0)
+        title='Manufacturing Facilities by Country',
+        geo=dict(showframe=False, showcoastlines=True),
+        height=400
     )
     
-    return fig, unmatched_locations
-
-
-def display_robust_interactive_globe(results_df):
-    """Display the interactive globe with comprehensive fallback handling"""
-    if len(results_df) >= 1:
-        st.markdown("---")
-        st.markdown("### 🌍 Manufacturing Locations")
-        st.markdown("*Spin the globe! Click and drag to rotate, scroll to zoom. Hover over pins for details.*")
-        
-        globe_fig, unmatched_locations = create_detailed_interactive_globe_with_fallbacks(results_df)
-        
-        if globe_fig:
-            st.plotly_chart(globe_fig, use_container_width=True)
-            
-            # Legend for precision levels
-            st.markdown("**Pin Colors:**")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.markdown("🔴 **Red:** City-level precision")
-            with col2:
-                st.markdown("🟠 **Orange:** Country-level")
-            with col3:
-                st.markdown("🟡 **Yellow:** Approximate match")
-            
-            # Show unmatched locations if any
-            if unmatched_locations:
-                st.markdown("---")
-                st.warning("⚠️ **Some locations could not be mapped precisely:**")
-                for location in unmatched_locations:
-                    st.markdown(f"• **{location['establishment']}** - {location['city']}, {location['country']}")
-                st.markdown("*These facilities exist but couldn't be pinpointed on the map due to incomplete location data.*")
-            
-            # Detailed facility list
-            st.markdown("---")
-            st.markdown("**Facility Details:**")
-            for idx, row in results_df.iterrows():
-                location = f"{row['city']}, {row['country']}" if row['city'] != 'Unknown' else row['country']
-                establishment = row['establishment_name'] if row['establishment_name'] != 'Unknown' else f"Facility {idx+1}"
-                operations = row['spl_operations'] if row['spl_operations'] != 'None found for this National Drug Code' else 'Operations not specified'
-                
-                st.markdown(f"📍 **{establishment}**")
-                st.markdown(f"   📍 Location: {location}")
-                st.markdown(f"   ⚙️ Operations: {operations}")
-                if row['fei_number']:
-                    st.markdown(f"   🔢 FEI Number: {row['fei_number']}")
-                st.markdown("")
-        else:
-            # Complete fallback - show a simple text summary
-            st.warning("🗺️ **Interactive map unavailable** - showing location summary instead:")
-            
-            countries = results_df['country'].value_counts()
-            for country, count in countries.items():
-                st.markdown(f"📍 **{country}:** {count} {'facility' if count == 1 else 'facilities'}")
-                
-                # Show cities within each country
-                country_facilities = results_df[results_df['country'] == country]
-                for _, facility in country_facilities.iterrows():
-                    city_info = f"   • {facility['establishment_name'] if facility['establishment_name'] != 'Unknown' else 'Manufacturing Facility'}"
-                    if facility['city'] != 'Unknown':
-                        city_info += f" ({facility['city']})"
-                    st.markdown(city_info)
+    return fig
 
 def main():
     st.set_page_config(
@@ -2367,8 +2082,20 @@ def main():
                                 else:
                                     st.write("**📍 Address:** Address not available")
                         
-                        # ADD THE GLOBE HERE (same indentation as the for loop)
-                        display_robust_interactive_globe(results_df)
+                        # Simple geographic visualization
+                        if len(results_df) >= 1:
+                            st.markdown("---")
+                            st.markdown("### 🗺️ Geographic Distribution")
+                            
+                            map_fig = create_simple_world_map(results_df)
+                            if map_fig:
+                                st.plotly_chart(map_fig, use_container_width=True)
+                                
+                                # Show country summary
+                                country_counts = results_df['country'].value_counts()
+                                st.markdown("**Facilities by Country:**")
+                                for country, count in country_counts.items():
+                                    st.markdown(f"• **{country}:** {count} {'facility' if count == 1 else 'facilities'}")
 
                         # CSV Download option (no header, just button)
                         # Prepare clean CSV data

@@ -2143,18 +2143,18 @@ def create_simple_world_map(results_df):
     min_facilities = mapped_countries['facility_count'].min()
     max_facilities = mapped_countries['facility_count'].max()
     
-    # Create custom color scale - light blue to dark blue
+    # Create custom color scale - darker blue to very dark blue (more visible)
     fig = go.Figure(data=go.Choropleth(
         locations=mapped_countries['iso'],
         z=mapped_countries['facility_count'],
         text=mapped_countries['country'],
         colorscale=[
-            [0.0, '#E3F2FD'],  # Very light blue for 1 facility
-            [0.2, '#BBDEFB'],  # Light blue
-            [0.4, '#90CAF9'],  # Medium light blue
-            [0.6, '#64B5F6'],  # Medium blue
-            [0.8, '#42A5F5'],  # Medium dark blue
-            [1.0, '#1E88E5']   # Dark blue for highest count
+            [0.0, '#64B5F6'],  # Darker light blue for 1 facility (much more visible)
+            [0.2, '#42A5F5'],  # Medium blue
+            [0.4, '#2196F3'],  # Blue
+            [0.6, '#1976D2'],  # Dark blue
+            [0.8, '#0D47A1'],  # Very dark blue
+            [1.0, '#0A1929']   # Black/blue for highest count
         ],
         colorbar=dict(
             title="Facilities",
@@ -2169,9 +2169,10 @@ def create_simple_world_map(results_df):
     ))
     
     fig.update_layout(
-        title='Manufacturing Facilities by Country',
+        title='',  # Remove title
         geo=dict(showframe=False, showcoastlines=True),
-        height=400
+        height=400,
+        margin=dict(l=0, r=0, t=0, b=0)  # Remove margins around the map
     )
     
     return fig
@@ -2270,6 +2271,11 @@ def main():
                         country_counts = results_df['country'].value_counts()
                         country_summary = ", ".join([f"{country}: {count}" for country, count in country_counts.items()])
                         st.subheader(f"🏭 {len(results_df)} Manufacturing Establishments - {country_summary}")
+
+                        # Add map right after the header
+                        map_fig = create_simple_world_map(results_df)
+                        if map_fig:
+                            st.plotly_chart(map_fig, use_container_width=True)
                         
                         # Manufacturing establishments - header without address
                         for idx, row in results_df.iterrows():
@@ -2310,21 +2316,6 @@ def main():
                                 else:
                                     st.write("**📍 Address:** Address not available")
                         
-                        # Simple geographic visualization
-                        if len(results_df) >= 1:
-                            st.markdown("---")
-                            st.markdown("### 🗺️ Geographic Distribution")
-                            
-                            map_fig = create_simple_world_map(results_df)
-                            if map_fig:
-                                st.plotly_chart(map_fig, use_container_width=True)
-                                
-                                # Show country summary
-                                country_counts = results_df['country'].value_counts()
-                                st.markdown("**Facilities by Country:**")
-                                for country, count in country_counts.items():
-                                    st.markdown(f"• **{country}:** {count} {'facility' if count == 1 else 'facilities'}")
-
                         # CSV Download option (no header, just button)
                         # Prepare clean CSV data
                         csv_data = results_df.copy()

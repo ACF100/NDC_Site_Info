@@ -1382,56 +1382,22 @@ class NDCToLocationMapper:
             _, _, establishments_info = self.extract_establishments_with_fei(product_info.spl_id, product_info.ndc)
             
             if establishments_info:
-                # Add debug section at the top of results
-                st.write("---")
-                st.write("🔍 **DEBUG: Inspection Lookup Process**")
-                
-                for i, establishment in enumerate(establishments_info):
-                    st.write(f"**Establishment {i+1}:**")
-                    
+                for establishment in establishments_info:
                     # Get FEI from the establishment data
                     fei_number = establishment.get('fei_number') or establishment.get('original_fei')
-                    duns_number = establishment.get('duns_number') or establishment.get('original_duns')
-                    
-                    st.write(f"- FEI Number: {fei_number} (type: {type(fei_number)})")
-                    st.write(f"- DUNS Number: {duns_number}")
                     
                     # Clean up FEI number if it exists
                     if fei_number and str(fei_number).strip() not in ['nan', '', 'None', '0000000', '0000000000']:
                         fei_clean = str(fei_number).strip()
                         
-                        # Check if this FEI exists in inspection database
-                        fei_variants = self._generate_all_id_variants(fei_clean)
-                        st.write(f"- Generated {len(fei_variants)} FEI variants")
-                        st.write(f"- First 5 variants: {fei_variants[:5]}")
-                        
-                        # Check each variant
-                        found_inspections = False
-                        for j, variant in enumerate(fei_variants[:5]):  # Check first 5
-                            if variant in self.inspection_database:
-                                inspection_count = len(self.inspection_database[variant])
-                                st.write(f"  ✅ FOUND {inspection_count} inspections for variant {j}: '{variant}'")
-                                found_inspections = True
-                                break
-                            else:
-                                st.write(f"  ❌ No inspections for variant {j}: '{variant}'")
-                        
-                        if not found_inspections:
-                            # Sample some inspection keys to see format
-                            sample_keys = list(self.inspection_database.keys())[:10]
-                            st.write(f"- Sample inspection keys: {sample_keys}")
-                        
-                        # Continue with normal lookup
+                        # Look up inspections using the FEI number
                         inspections = self.get_facility_inspections(fei_clean)
                         inspection_summary = self.get_inspection_summary(inspections)
-                        
-                        st.write(f"- Final inspection count: {len(inspections)}")
                         
                         establishment['inspections'] = inspections[:10]
                         establishment['inspection_summary'] = inspection_summary
                         establishment['fei_number'] = fei_clean
                     else:
-                        st.write("- No valid FEI number for inspection lookup")
                         establishment['inspections'] = []
                         establishment['inspection_summary'] = {
                             'total_records': 0,
@@ -1439,9 +1405,6 @@ class NDCToLocationMapper:
                         }
                     
                     establishments.append(establishment)
-                    st.write("")  # Add spacing
-                
-                st.write("---")
         
         return establishments[:10]
 

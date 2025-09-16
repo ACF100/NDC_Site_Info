@@ -2306,7 +2306,7 @@ def main():
                     
                     else:
                         # Full results with establishments
-                        st.success(f"✅ Found {len(results_df)} manufacturing establishments")
+                        st.success(f"✅ Found {len(results_df)} manufacturing establishment{'s' if len(results_df) != 1 else ''}")
                         
                         # Product, Labeler, and NDC with same text size
                         st.subheader(f"**Product:** {first_row['product_name']}")
@@ -2320,7 +2320,7 @@ def main():
                         # Manufacturing establishments header with count first and countries
                         country_counts = results_df['country'].value_counts()
                         country_summary = ", ".join([f"{country}: {count}" for country, count in country_counts.items()])
-                        st.subheader(f"🏭 {len(results_df)} Manufacturing Establishments in Public Data - {country_summary}")
+                        st.subheader(f"🏭 {len(results_df)} Manufacturing Establishment{'s' if len(results_df) != 1 else ''} - {country_summary}")
 
                         # Add map right after the header
                         map_fig = create_simple_world_map(results_df)

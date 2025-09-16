@@ -4,6 +4,7 @@ import os
 import requests
 import json
 import time
+import pickle
 import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
@@ -46,10 +47,49 @@ class NDCToLocationMapper:
         # Initialize empty databases
         self.fei_database = {}
         self.duns_database = {}
+        self.inspection_database = {}
         self.database_loaded = False
-        self.database_date = None  # Track when database was created
+        self.database_date = None
         
-        # Auto-load database
+        # Load optimized databases (fast!)
+        self.load_optimized_databases()
+
+    def load_optimized_databases(self):
+        """Load pre-processed databases (2-5 seconds vs 30-60 seconds)"""
+        
+        # Try to load optimized databases in order of preference
+        optimized_files = [
+            'fda_databases_optimized.pkl.gz',  # Compressed (fastest)
+            'data/fda_databases_optimized.pkl.gz',
+            'fda_databases_optimized.pkl',     # Uncompressed
+            'data/fda_databases_optimized.pkl'
+        ]
+        
+        for file_path in optimized_files:
+            if os.path.exists(file_path):
+                try:
+                    if file_path.endswith('.gz'):
+                        import gzip
+                        with gzip.open(file_path, 'rb') as f:
+                            data = pickle.load(f)
+                    else:
+                        with open(file_path, 'rb') as f:
+                            data = pickle.load(f)
+                    
+                    # Load the processed data
+                    self.fei_database = data['fei_database']
+                    self.duns_database = data['duns_database']
+                    self.inspection_database = data.get('inspection_database', {})
+                    self.database_date = data.get('database_date', 'Unknown')
+                    self.database_loaded = True
+                    
+                    return
+                    
+                except Exception as e:
+                    continue
+        
+        # If no optimized files found, fallback to CSV loading
+        st.warning("⚠️ Optimized database not found. Loading from CSV files (this will take longer)...")
         self.load_database_automatically()
 
     def load_database_automatically(self):
@@ -2188,44 +2228,23 @@ def main():
     st.markdown("### Find where your medications are manufactured")
     st.markdown("Enter a National Drug Code (NDC) number to see if it has manufacturing establishments, locations, and operations in public FDA data.")
     
-    # Auto-load database with progress indicators
+    # SIMPLIFIED LOADING - No complex progress bars needed!
     if 'mapper' not in st.session_state:
-        # Create progress container that will be completely removed
-        progress_container = st.empty()
-        
-        with progress_container.container():
-            st.info("🔄 **First-time setup:** Loading FDA databases...")
-            
-            # Create progress elements
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            # Step 1: Initialize
-            status_text.text("⚙️ Initializing system...")
-            progress_bar.progress(20)
-            
-            # Step 2: Create mapper instance (this does the heavy lifting)
-            status_text.text("📊 Loading FDA establishment database...")
-            progress_bar.progress(40)
-            
+        # Simple spinner for fast loading (2-5 seconds)
+        with st.spinner("🚀 Loading databases..."):
             st.session_state.mapper = NDCToLocationMapper()
-            progress_bar.progress(90)
-            
-            # Step 3: Finalize
-            status_text.text("✅ Setup complete!")
-            progress_bar.progress(100)
-            
-            # Brief pause to show completion
-            import time
-            time.sleep(0.5)
         
-        # Remove the entire progress container
-        progress_container.empty()
-        
-        # Only show error if there was a problem
+        # Simple error handling
         if not st.session_state.mapper.database_loaded:
-            st.error("❌ Could not load establishment database")
+            st.error("❌ Could not load database files. Please ensure the optimized database file is available.")
+            st.info("💡 Make sure 'fda_databases_optimized.pkl' is in your app directory.")
             st.stop()
+        else:
+            # Brief success message that auto-disappears
+            success_placeholder = st.empty()
+            success_placeholder.success("✅ Database loaded successfully!")
+            time.sleep(1)
+            success_placeholder.empty()
 
     # Input section with Enter key functionality - no horizontal line
     # Use form to enable Enter key submission

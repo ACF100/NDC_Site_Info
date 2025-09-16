@@ -52,197 +52,66 @@ class NDCToLocationMapper:
         # Auto-load database
         self.load_database_automatically()
 
-    def normalize_id(self, id_number: str) -> str:
-        """Normalize any ID to canonical format"""
-        if not id_number or str(id_number).strip() in ['nan', '', 'None']:
-            return None
-        
-        clean = re.sub(r'[^\d]', '', str(id_number))
-        if len(clean) >= 7:  # Valid ID length
-            return f"{int(clean):010d}"  # Pad to 10 digits
-        return None
-
-    def is_valid_id(self, id_number: str, min_length: int = 7) -> bool:
-        """Check if ID is valid"""
-        if not id_number or str(id_number).strip() in ['nan', '', 'None', '0000000', '0000000000']:
-            return False
-        clean = re.sub(r'[^\d]', '', str(id_number))
-        return len(clean) >= min_length
-
-    def find_column(self, df, possible_names: list) -> str:
-        """Find column by possible names (case insensitive)"""
-        for col in df.columns:
-            col_clean = col.lower().replace('_', '').replace(' ', '')
-            for name in possible_names:
-                name_clean = name.lower().replace('_', '').replace(' ', '')
-                if name_clean in col_clean or col_clean == name_clean:
-                    return col
-        return None
-
-    def quick_parse_address(self, address: str) -> Dict:
-        """Simplified, faster address parsing"""
-        try:
-            lines = address.replace('\\n', ',').split(',')
-            return {
-                'establishment_name': lines[0].strip() if lines else 'Unknown',
-                'address_line_1': lines[1].strip() if len(lines) > 1 else address,
-                'city': lines[-2].strip() if len(lines) >= 3 else 'Unknown',
-                'state_province': lines[-1].strip() if len(lines) >= 2 else 'Unknown',
-                'country': 'Unknown',
-                'postal_code': ''
-            }
-        except:
-            return {
-                'establishment_name': 'Unknown',
-                'address_line_1': address,
-                'city': 'Unknown',
-                'state_province': 'Unknown',
-                'country': 'Unknown',
-                'postal_code': ''
-            }
-
-    def process_establishment_data_normalized(self, df):
-        """Process establishment data with normalized keys"""
-        # Find columns efficiently
-        fei_col = self.find_column(df, ['fei_number', 'feinumber'])
-        duns_col = self.find_column(df, ['duns_number', 'dunsnumber'])
-        address_col = self.find_column(df, ['address'])
-        firm_name_col = self.find_column(df, ['firm_name', 'firmname'])
-        
-        if not (fei_col or duns_col) or not address_col:
-            return
-        
-        for idx, row in df.iterrows():
-            try:
-                address = str(row[address_col]).strip()
-                if pd.isna(row[address_col]) or address in ['nan', '']:
-                    continue
-                
-                # Parse address components
-                address_parts = self.quick_parse_address(address)
-                
-                # Get firm name
-                firm_name = 'Unknown'
-                if firm_name_col and not pd.isna(row[firm_name_col]):
-                    firm_name = str(row[firm_name_col]).strip()
-                    if firm_name in ['nan', '']:
-                        firm_name = 'Unknown'
-                
-                # Create establishment data
-                establishment_data = {
-                    'establishment_name': address_parts.get('establishment_name', 'Unknown'),
-                    'firm_name': firm_name,
-                    'address_line_1': address_parts.get('address_line_1', address),
-                    'city': address_parts.get('city', 'Unknown'),
-                    'state_province': address_parts.get('state_province', 'Unknown'),
-                    'country': address_parts.get('country', 'Unknown'),
-                    'postal_code': address_parts.get('postal_code', ''),
-                    'latitude': None,
-                    'longitude': None,
-                    'search_method': 'spreadsheet_database'
-                }
-                
-                # Store FEI with normalized key (only once!)
-                if fei_col and not pd.isna(row[fei_col]):
-                    fei_raw = str(row[fei_col]).strip()
-                    if self.is_valid_id(fei_raw):
-                        canonical_fei = self.normalize_id(fei_raw)
-                        if canonical_fei:
-                            establishment_data['original_fei'] = fei_raw
-                            self.fei_database[canonical_fei] = establishment_data.copy()
-                
-                # Store DUNS with normalized key (only once!)
-                if duns_col and not pd.isna(row[duns_col]):
-                    duns_raw = str(row[duns_col]).strip()
-                    if self.is_valid_id(duns_raw, min_length=8):
-                        canonical_duns = self.normalize_id(duns_raw)
-                        if canonical_duns:
-                            establishment_data['original_duns'] = duns_raw
-                            self.duns_database[canonical_duns] = establishment_data.copy()
-                            
-            except Exception:
-                continue
-
-    def load_inspection_sample(self, file_path: str, max_records: int = 1000):
-        """Load a sample of inspection data"""
-        try:
-            if file_path.endswith('.gz'):
-                import gzip
-                with gzip.open(file_path, 'rt', encoding='utf-8') as f:
-                    df = pd.read_csv(f, dtype=str, nrows=max_records)
-            else:
-                df = pd.read_csv(file_path, dtype=str, nrows=max_records)
-            
-            for _, row in df.iterrows():
-                try:
-                    fei_number = str(row.get('FEI Number', '')).strip()
-                    if not fei_number or fei_number == 'nan':
-                        continue
-                    
-                    canonical_fei = self.normalize_id(fei_number)
-                    if not canonical_fei:
-                        continue
-                    
-                    inspection_record = {
-                        'fei_number': fei_number,
-                        'classification': str(row.get('Classification', '')).strip(),
-                        'inspection_date': str(row.get('Inspection End Date', '')).strip(),
-                        'source': 'FDA Inspection Database'
-                    }
-                    
-                    if canonical_fei not in self.inspection_database:
-                        self.inspection_database[canonical_fei] = []
-                    self.inspection_database[canonical_fei].append(inspection_record)
-                    
-                except Exception:
-                    continue
-                    
-        except Exception:
-            pass
-
     def load_database_automatically(self):
-        """Optimized database loading"""
+        """Automatically load both establishment and inspection databases"""
         try:
-            # Only try most likely file locations
-            establishment_files = ["drls_reg.csv", "drls_reg.xlsx"]
-            inspection_files = ["inspection_outcomes_reg.csv.gz", "inspection_outcomes_reg.csv"]
-            
             # Load establishment database
+            establishment_files = [
+                "drls_reg.csv",
+                "data/drls_reg.csv", 
+                "./drls_reg.csv",
+                "../drls_reg.csv",
+                "drls_reg.xlsx",
+                "data/drls_reg.xlsx", 
+                "./drls_reg.xlsx",
+                "../drls_reg.xlsx"
+            ]
+            
+            # Load inspection database  
+            inspection_files = [
+                "inspection_outcomes_reg.csv.gz",
+                "data/inspection_outcomes_reg.csv.gz",
+                "./inspection_outcomes_reg.csv.gz", 
+                "../inspection_outcomes_reg.csv.gz",
+                "inspection_outcomes_reg.csv",
+                "data/inspection_outcomes_reg.csv",
+                "./inspection_outcomes_reg.csv", 
+                "../inspection_outcomes_reg.csv",
+                "inspection_outcomes.xlsx",
+                "data/inspection_outcomes.xlsx",
+                "./inspection_outcomes.xlsx", 
+                "../inspection_outcomes.xlsx"
+            ]
+            
+            # Try to load establishment database
             for file_path in establishment_files:
                 if os.path.exists(file_path):
-                    try:
-                        if file_path.endswith('.csv'):
-                            df = pd.read_csv(file_path, dtype=str)
-                        else:
-                            df = pd.read_excel(file_path, dtype=str)
-                        
-                        self.process_establishment_data_normalized(df)
+                    self.load_fei_database_from_spreadsheet(file_path)
+                    if self.fei_database or self.duns_database:
                         self.database_loaded = True
-                        
                         try:
                             mod_time = os.path.getmtime(file_path)
                             self.database_date = datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d")
                         except:
                             self.database_date = "Unknown"
                         break
-                        
-                    except Exception as e:
-                        continue
             
-            # Initialize inspection database
-            self.inspection_database = {}
-            
-            # Try to load some inspection data
+            # Try to load inspection database
             for file_path in inspection_files:
                 if os.path.exists(file_path):
-                    try:
-                        self.load_inspection_sample(file_path)
+                    if self.load_inspection_database_from_spreadsheet(file_path):
+                        st.success(f"✅ Loaded inspection outcomes database: {len(self.inspection_database):,} FEI records")
                         break
-                    except Exception:
-                        continue
-                        
+            
+            if not hasattr(self, 'inspection_database'):
+                self.inspection_database = {}
+                
+            # Show error if no establishment database found
+            if not self.database_loaded:
+                st.error("❌ Could not load establishment database from any source")
+                
         except Exception as e:
-            self.database_loaded = False
+            st.error(f"❌ Error during database loading: {str(e)}")
 
     def load_fei_database_from_spreadsheet(self, file_path: str):
         """Load FEI and DUNS database from a spreadsheet with cross-linked identifiers"""
@@ -975,71 +844,36 @@ class NDCToLocationMapper:
         return clean_ndc[1:] if len(clean_ndc) == 11 and clean_ndc.startswith('0') else clean_ndc
 
     def lookup_fei_establishment(self, fei_number: str) -> Optional[Dict]:
-        """Look up establishment using normalized search"""
-        if not fei_number:
+        """Look up establishment information using FEI number from spreadsheet database"""
+        try:
+            # Try EXPANDED formats for FEI lookup
+            fei_variants = self._generate_all_id_variants(fei_number)
+
+            for fei_variant in fei_variants:
+                if fei_variant in self.fei_database:
+                    establishment_info = self.fei_database[fei_variant].copy()
+                    establishment_info['fei_number'] = fei_variant
+                    return establishment_info
+                    
             return None
-        
-        # Try normalizing the search term first
-        canonical_fei = self.normalize_id(fei_number)
-        if canonical_fei and canonical_fei in self.fei_database:
-            establishment_info = self.fei_database[canonical_fei].copy()
-            establishment_info['fei_number'] = canonical_fei
-            return establishment_info
-        
-        # Fallback: try common variants
-        search_variants = [fei_number.strip(), re.sub(r'[^\d]', '', fei_number)]
-        
-        clean_fei = re.sub(r'[^\d]', '', fei_number)
-        if len(clean_fei) >= 7:
-            try:
-                fei_int = int(clean_fei)
-                search_variants.extend([
-                    f"{fei_int:08d}", f"{fei_int:09d}", 
-                    f"{fei_int:010d}", f"{fei_int:011d}"
-                ])
-            except ValueError:
-                pass
-        
-        for variant in search_variants:
-            if variant in self.fei_database:
-                establishment_info = self.fei_database[variant].copy()
-                establishment_info['fei_number'] = variant
-                return establishment_info
-        
-        return None
+        except Exception as e:
+            return None
 
     def lookup_duns_establishment(self, duns_number: str) -> Optional[Dict]:
-        """Look up establishment using DUNS number with normalized search"""
-        if not duns_number:
+        """Look up establishment information using DUNS number from spreadsheet database"""
+        try:
+            # Try EXPANDED formats for DUNS lookup
+            duns_variants = self._generate_all_id_variants(duns_number)
+
+            for duns_variant in duns_variants:
+                if duns_variant in self.duns_database:
+                    establishment_info = self.duns_database[duns_variant].copy()
+                    establishment_info['duns_number'] = duns_variant
+                    return establishment_info
+                    
             return None
-        
-        # Try normalizing the search term first
-        canonical_duns = self.normalize_id(duns_number)
-        if canonical_duns and canonical_duns in self.duns_database:
-            establishment_info = self.duns_database[canonical_duns].copy()
-            establishment_info['duns_number'] = canonical_duns
-            return establishment_info
-        
-        # Fallback: try common variants
-        search_variants = [duns_number.strip(), re.sub(r'[^\d]', '', duns_number)]
-        
-        clean_duns = re.sub(r'[^\d]', '', duns_number)
-        if len(clean_duns) >= 8:
-            try:
-                duns_int = int(clean_duns)
-                search_variants.extend([
-                    f"{duns_int:09d}", f"{duns_int:010d}", f"{duns_int:011d}"
-                ])
-            except ValueError:
-                pass
-        
-        for variant in search_variants:
-            if variant in self.duns_database:
-                establishment_info = self.duns_database[variant].copy()
-                establishment_info['duns_number'] = variant
-                return establishment_info
-        
-        return None
+        except Exception as e:
+            return None
 
     def find_fei_duns_matches_in_spl(self, spl_id: str) -> List[FEIMatch]:
         """Find FEI and DUNS numbers in SPL that match the spreadsheet database and return their XML locations"""
@@ -2354,44 +2188,41 @@ def main():
     st.markdown("### Find where your medications are manufactured")
     st.markdown("Enter a National Drug Code (NDC) number to see if it has manufacturing establishments, locations, and operations in public FDA data.")
     
-    # Auto-load database and show status with progress
-    if 'mapper' not in st.session_state:
-        # Create progress container
-        with st.container():
-            st.info("🔄 **First-time setup:** Loading FDA databases... (This may take 30-60 seconds)")
-            
-            # Create progress elements
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            # Step 1: Initialize
-            status_text.text("⚙️ Initializing system...")
-            progress_bar.progress(20)
-            
-            # Step 2: Create mapper instance (this does the heavy lifting)
-            status_text.text("📊 Loading FDA establishment database...")
-            progress_bar.progress(40)
-            
-            st.session_state.mapper = NDCToLocationMapper()
-            progress_bar.progress(90)
-            
-            # Step 3: Finalize
-            status_text.text("✅ Setup complete!")
-            progress_bar.progress(100)
-            
-            # Show success message
-            if st.session_state.mapper.database_loaded:
-                fei_count = len(st.session_state.mapper.fei_database)
-                st.success(f"🎉 **Ready!** Loaded {fei_count:,} establishment records")
-            else:
-                st.error("❌ Could not load establishment database")
-            
-            # Clean up progress indicators
-            import time
-            time.sleep(1)
-            progress_bar.empty()
-            status_text.empty()
-            
+# Auto-load database with progress indicators
+if 'mapper' not in st.session_state:
+    # Create progress container that will be completely removed
+    progress_container = st.empty()
+    
+    with progress_container.container():
+        st.info("🔄 **First-time setup:** Loading FDA databases...")
+        
+        # Create progress elements
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Step 1: Initialize
+        status_text.text("⚙️ Initializing system...")
+        progress_bar.progress(20)
+        
+        # Step 2: Create mapper instance (this does the heavy lifting)
+        status_text.text("📊 Loading FDA establishment database...")
+        progress_bar.progress(40)
+        
+        st.session_state.mapper = NDCToLocationMapper()
+        progress_bar.progress(90)
+        
+        # Step 3: Finalize
+        status_text.text("✅ Setup complete!")
+        progress_bar.progress(100)
+        
+        # Brief pause to show completion
+        import time
+        time.sleep(0.5)
+    
+    # Remove the entire progress container
+    progress_container.empty()
+    
+    # Only show error if there was a problem
     if not st.session_state.mapper.database_loaded:
         st.error("❌ Could not load establishment database")
         st.stop()
@@ -2470,7 +2301,7 @@ def main():
                         # Manufacturing establishments header with count first and countries
                         country_counts = results_df['country'].value_counts()
                         country_summary = ", ".join([f"{country}: {count}" for country, count in country_counts.items()])
-                        st.subheader(f"🏭 {len(results_df)} Manufacturing Establishments in Public Data - {country_summary}")
+                        st.subheader(f"🏭 {len(results_df)} Manufacturing Establishments - {country_summary}")
 
                         # Add map right after the header
                         map_fig = create_simple_world_map(results_df)

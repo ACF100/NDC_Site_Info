@@ -2225,7 +2225,7 @@ def main():
     )
     
     st.title("💊 Medication Manufacturing Location Lookup")
-    st.markdown("### Find where your medications are manufactured")
+    st.markdown("### Find where medications are manufactured")
     st.markdown("Enter a National Drug Code (NDC) number to see if it has manufacturing establishments, locations, and operations in public FDA data.")
     
     # SIMPLIFIED LOADING - No complex progress bars needed!
@@ -2278,7 +2278,7 @@ def main():
         search_btn = True
     
     # Information link - removed "About FDA drug databases"
-    st.markdown("📖 [How to find your medication's National Drug Code](https://dailymed.nlm.nih.gov/dailymed/help.cfm)")
+    st.markdown("📖 [How to find a medication's National Drug Code](https://dailymed.nlm.nih.gov/dailymed/help.cfm)")
     
     # Search functionality
     if search_btn and ndc_input:
@@ -2302,7 +2302,7 @@ def main():
                             spl_url = f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={first_row['spl_id']}"
                             st.markdown(f"📄 **Structured Product Label:** [View on DailyMed]({spl_url})")
                         
-                        st.info("💡 This product may not have detailed establishment information in its official documentation (~70% of products don't include manufacturing details), or the establishments may not be in our database.")
+                        st.info("💡 This product may not have detailed establishment information in its official documentation (~70% of products don't include manufacturing details).")
                     
                     else:
                         # Full results with establishments
@@ -2320,7 +2320,7 @@ def main():
                         # Manufacturing establishments header with count first and countries
                         country_counts = results_df['country'].value_counts()
                         country_summary = ", ".join([f"{country}: {count}" for country, count in country_counts.items()])
-                        st.subheader(f"🏭 {len(results_df)} Manufacturing Establishments - {country_summary}")
+                        st.subheader(f"🏭 {len(results_df)} Manufacturing Establishments in Public Data - {country_summary}")
 
                         # Add map right after the header
                         map_fig = create_simple_world_map(results_df)
@@ -2405,17 +2405,23 @@ def main():
     🏭 **Find manufacturing facilities** worldwide  
     🌍 **Show locations** on maps  
     
-    **What you can discover:**
-    - ✅ Where your medication is made
-    - ✅ What company manufactures it  
-    - ✅ Manufacturing operations performed
-    - ✅ Global supply chain information
-    - ✅ Interactive maps of facilities
-    
     **Coverage:**
     Approximately 30% of medications have some manufacturing establishment info in public FDA data.
     """)
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("**⚠️ Important Disclaimer:**")
+    st.sidebar.markdown("""
+    This tool is provided for **informational and educational purposes only**. 
     
+    - Information may not be complete or current
+    - Not intended for medical decision-making
+    - Does not replace consultation with healthcare providers
+    - Manufacturing locations may change over time
+    - Always consult your pharmacist or doctor for medication questions
+    
+    Data sources: FDA databases, official product labeling, and establishment registrations.
+    """)
+
     if 'mapper' in st.session_state and st.session_state.mapper.database_loaded:
         st.sidebar.markdown("---")
         st.sidebar.metric("FDA Database Entries", f"{len(st.session_state.mapper.fei_database):,}")
@@ -2430,20 +2436,6 @@ def main():
         st.sidebar.markdown("---")
         st.sidebar.markdown("**Database Status:**")
         st.sidebar.success("✅ Loaded and Ready")
-    
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("**⚠️ Important Disclaimer:**")
-    st.sidebar.markdown("""
-    This tool is provided for **informational and educational purposes only**. 
-    
-    - Information may not be complete or current
-    - Not intended for medical decision-making
-    - Does not replace consultation with healthcare providers
-    - Manufacturing locations may change over time
-    - Always consult your pharmacist or doctor for medication questions
-    
-    Data sources: FDA databases, official product labeling, and establishment registrations.
-    """)
 
 if __name__ == "__main__":
     main()

@@ -52,98 +52,54 @@ class NDCToLocationMapper:
         # Auto-load database
         self.load_database_automatically()
 
-def normalize_id(self, id_number: str) -> str:
-    """Normalize any ID to canonical format"""
-    if not id_number or str(id_number).strip() in ['nan', '', 'None']:
+    def normalize_id(self, id_number: str) -> str:
+        """Normalize any ID to canonical format"""
+        if not id_number or str(id_number).strip() in ['nan', '', 'None']:
+            return None
+        
+        clean = re.sub(r'[^\d]', '', str(id_number))
+        if len(clean) >= 7:  # Valid ID length
+            return f"{int(clean):010d}"  # Pad to 10 digits
         return None
-    
-    clean = re.sub(r'[^\d]', '', str(id_number))
-    if len(clean) >= 7:  # Valid ID length
-        return f"{int(clean):010d}"  # Pad to 10 digits
-    return None
 
-def is_valid_id(self, id_number: str, min_length: int = 7) -> bool:
-    """Check if ID is valid"""
-    if not id_number or str(id_number).strip() in ['nan', '', 'None', '0000000', '0000000000']:
-        return False
-    clean = re.sub(r'[^\d]', '', str(id_number))
-    return len(clean) >= min_length
+    def is_valid_id(self, id_number: str, min_length: int = 7) -> bool:
+        """Check if ID is valid"""
+        if not id_number or str(id_number).strip() in ['nan', '', 'None', '0000000', '0000000000']:
+            return False
+        clean = re.sub(r'[^\d]', '', str(id_number))
+        return len(clean) >= min_length
 
-def find_column(self, df, possible_names: list) -> str:
-    """Find column by possible names (case insensitive)"""
-    for col in df.columns:
-        col_clean = col.lower().replace('_', '').replace(' ', '')
-        for name in possible_names:
-            name_clean = name.lower().replace('_', '').replace(' ', '')
-            if name_clean in col_clean or col_clean == name_clean:
-                return col
-    return None
+    def find_column(self, df, possible_names: list) -> str:
+        """Find column by possible names (case insensitive)"""
+        for col in df.columns:
+            col_clean = col.lower().replace('_', '').replace(' ', '')
+            for name in possible_names:
+                name_clean = name.lower().replace('_', '').replace(' ', '')
+                if name_clean in col_clean or col_clean == name_clean:
+                    return col
+        return None
 
-def quick_parse_address(self, address: str) -> Dict:
-    """Simplified, faster address parsing"""
-    try:
-        lines = address.replace('\\n', ',').split(',')
-        return {
-            'establishment_name': lines[0].strip() if lines else 'Unknown',
-            'address_line_1': lines[1].strip() if len(lines) > 1 else address,
-            'city': lines[-2].strip() if len(lines) >= 3 else 'Unknown',
-            'state_province': lines[-1].strip() if len(lines) >= 2 else 'Unknown',
-            'country': 'Unknown',
-            'postal_code': ''
-        }
-    except:
-        return {
-            'establishment_name': 'Unknown',
-            'address_line_1': address,
-            'city': 'Unknown',
-            'state_province': 'Unknown',
-            'country': 'Unknown',
-            'postal_code': ''
-        }
-
-    def load_database_automatically(self):
-        """Optimized database loading"""
+    def quick_parse_address(self, address: str) -> Dict:
+        """Simplified, faster address parsing"""
         try:
-            # Only try most likely file locations
-            establishment_files = ["drls_reg.csv", "drls_reg.xlsx"]
-            inspection_files = ["inspection_outcomes_reg.csv.gz", "inspection_outcomes_reg.csv"]
-            
-            # Load establishment database
-            for file_path in establishment_files:
-                if os.path.exists(file_path):
-                    try:
-                        if file_path.endswith('.csv'):
-                            df = pd.read_csv(file_path, dtype=str)
-                        else:
-                            df = pd.read_excel(file_path, dtype=str)
-                        
-                        self.process_establishment_data_normalized(df)
-                        self.database_loaded = True
-                        
-                        try:
-                            mod_time = os.path.getmtime(file_path)
-                            self.database_date = datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d")
-                        except:
-                            self.database_date = "Unknown"
-                        break
-                        
-                    except Exception as e:
-                        continue
-            
-            # Initialize inspection database
-            self.inspection_database = {}
-            
-            # Try to load some inspection data
-            for file_path in inspection_files:
-                if os.path.exists(file_path):
-                    try:
-                        self.load_inspection_sample(file_path)
-                        break
-                    except Exception:
-                        continue
-                        
-        except Exception as e:
-            self.database_loaded = False
+            lines = address.replace('\\n', ',').split(',')
+            return {
+                'establishment_name': lines[0].strip() if lines else 'Unknown',
+                'address_line_1': lines[1].strip() if len(lines) > 1 else address,
+                'city': lines[-2].strip() if len(lines) >= 3 else 'Unknown',
+                'state_province': lines[-1].strip() if len(lines) >= 2 else 'Unknown',
+                'country': 'Unknown',
+                'postal_code': ''
+            }
+        except:
+            return {
+                'establishment_name': 'Unknown',
+                'address_line_1': address,
+                'city': 'Unknown',
+                'state_province': 'Unknown',
+                'country': 'Unknown',
+                'postal_code': ''
+            }
 
     def process_establishment_data_normalized(self, df):
         """Process establishment data with normalized keys"""
@@ -243,6 +199,50 @@ def quick_parse_address(self, address: str) -> Dict:
                     
         except Exception:
             pass
+
+    def load_database_automatically(self):
+        """Optimized database loading"""
+        try:
+            # Only try most likely file locations
+            establishment_files = ["drls_reg.csv", "drls_reg.xlsx"]
+            inspection_files = ["inspection_outcomes_reg.csv.gz", "inspection_outcomes_reg.csv"]
+            
+            # Load establishment database
+            for file_path in establishment_files:
+                if os.path.exists(file_path):
+                    try:
+                        if file_path.endswith('.csv'):
+                            df = pd.read_csv(file_path, dtype=str)
+                        else:
+                            df = pd.read_excel(file_path, dtype=str)
+                        
+                        self.process_establishment_data_normalized(df)
+                        self.database_loaded = True
+                        
+                        try:
+                            mod_time = os.path.getmtime(file_path)
+                            self.database_date = datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d")
+                        except:
+                            self.database_date = "Unknown"
+                        break
+                        
+                    except Exception as e:
+                        continue
+            
+            # Initialize inspection database
+            self.inspection_database = {}
+            
+            # Try to load some inspection data
+            for file_path in inspection_files:
+                if os.path.exists(file_path):
+                    try:
+                        self.load_inspection_sample(file_path)
+                        break
+                    except Exception:
+                        continue
+                        
+        except Exception as e:
+            self.database_loaded = False
 
     def load_fei_database_from_spreadsheet(self, file_path: str):
         """Load FEI and DUNS database from a spreadsheet with cross-linked identifiers"""

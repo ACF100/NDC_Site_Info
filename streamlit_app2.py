@@ -2188,13 +2188,44 @@ def main():
     st.markdown("### Find where your medications are manufactured")
     st.markdown("Enter a National Drug Code (NDC) number to see if it has manufacturing establishments, locations, and operations in public FDA data.")
     
-    # Auto-load database and show status (simplified)
+    # Auto-load database with progress indicators
     if 'mapper' not in st.session_state:
-        st.session_state.mapper = NDCToLocationMapper()
+        # Create progress container that will be completely removed
+        progress_container = st.empty()
+        
+        with progress_container.container():
+            st.info("🔄 **First-time setup:** Loading FDA databases...")
             
-    if not st.session_state.mapper.database_loaded:
-        st.error("❌ Could not load establishment database")
-        st.stop()
+            # Create progress elements
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # Step 1: Initialize
+            status_text.text("⚙️ Initializing system...")
+            progress_bar.progress(20)
+            
+            # Step 2: Create mapper instance (this does the heavy lifting)
+            status_text.text("📊 Loading FDA establishment database...")
+            progress_bar.progress(40)
+            
+            st.session_state.mapper = NDCToLocationMapper()
+            progress_bar.progress(90)
+            
+            # Step 3: Finalize
+            status_text.text("✅ Setup complete!")
+            progress_bar.progress(100)
+            
+            # Brief pause to show completion
+            import time
+            time.sleep(0.5)
+        
+        # Remove the entire progress container
+        progress_container.empty()
+        
+        # Only show error if there was a problem
+        if not st.session_state.mapper.database_loaded:
+            st.error("❌ Could not load establishment database")
+            st.stop()
 
     # Input section with Enter key functionality - no horizontal line
     # Use form to enable Enter key submission

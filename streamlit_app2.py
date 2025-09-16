@@ -2320,7 +2320,7 @@ def main():
                         # Manufacturing establishments header with count first and countries
                         country_counts = results_df['country'].value_counts()
                         country_summary = ", ".join([f"{country}: {count}" for country, count in country_counts.items()])
-                        st.subheader(f"🏭 {len(results_df)} Manufacturing Establishment{'s' if len(results_df) != 1 else ''} - {country_summary}")
+                        st.subheader(f"🏭 {len(results_df)} Manufacturing Establishment{'s' if len(results_df) != 1 else ''} in Public Data - {country_summary}")
 
                         # Add map right after the header
                         map_fig = create_simple_world_map(results_df)

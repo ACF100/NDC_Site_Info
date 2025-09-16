@@ -1374,65 +1374,65 @@ class NDCToLocationMapper:
         except Exception as e:
             return [], [], []
 
-def get_establishment_info(self, product_info: ProductInfo) -> List[Dict]:
-    """Get establishment information for a product with inspection data"""
-    establishments = []
+    def get_establishment_info(self, product_info: ProductInfo) -> List[Dict]:  # ← This should be indented
+        """Get establishment information for a product with inspection data"""
+        establishments = []
 
-    if product_info.spl_id:
-        _, _, establishments_info = self.extract_establishments_with_fei(product_info.spl_id, product_info.ndc)
+        if product_info.spl_id:
+            _, _, establishments_info = self.extract_establishments_with_fei(product_info.spl_id, product_info.ndc)
+            
+            if establishments_info:
+                for establishment in establishments_info:
+                    # Get FEI from the establishment data
+                    fei_number = establishment.get('fei_number') or establishment.get('original_fei')
+                    
+                    # TEMPORARY DEBUG - remove after fixing
+                    print(f"🔍 DEBUG: Looking up inspections for FEI: {fei_number}")
+                    print(f"   Type: {type(fei_number)}")
+                    print(f"   Value: '{fei_number}'")
+                    
+                    # Clean up FEI number if it exists
+                    if fei_number and str(fei_number).strip() not in ['nan', '', 'None', '0000000', '0000000000']:
+                        fei_clean = str(fei_number).strip()
+                        
+                        # DEBUG: Check if this FEI exists in inspection database
+                        fei_variants = self._generate_all_id_variants(fei_clean)
+                        print(f"   Generated {len(fei_variants)} FEI variants")
+                        print(f"   First 5 variants: {fei_variants[:5]}")
+                        
+                        # Check each variant
+                        found_inspections = False
+                        for i, variant in enumerate(fei_variants[:10]):  # Check first 10
+                            if variant in self.inspection_database:
+                                inspection_count = len(self.inspection_database[variant])
+                                print(f"   ✅ FOUND {inspection_count} inspections for variant {i}: '{variant}'")
+                                found_inspections = True
+                                break
+                            else:
+                                print(f"   ❌ No inspections for variant {i}: '{variant}'")
+                        
+                        if not found_inspections:
+                            # Sample some inspection keys to see format
+                            sample_keys = list(self.inspection_database.keys())[:10]
+                            print(f"   📋 Sample inspection keys in database: {sample_keys}")
+                        
+                        # Continue with normal lookup
+                        inspections = self.get_facility_inspections(fei_clean)
+                        inspection_summary = self.get_inspection_summary(inspections)
+                        
+                        establishment['inspections'] = inspections[:10]
+                        establishment['inspection_summary'] = inspection_summary
+                        establishment['fei_number'] = fei_clean
+                    else:
+                        establishment['inspections'] = []
+                        establishment['inspection_summary'] = {
+                            'total_records': 0,
+                            'status': 'No FEI number available for inspection lookup'
+                        }
+                    
+                    establishments.append(establishment)
         
-        if establishments_info:
-            for establishment in establishments_info:
-                # Get FEI from the establishment data
-                fei_number = establishment.get('fei_number') or establishment.get('original_fei')
-                
-                # TEMPORARY DEBUG - remove after fixing
-                print(f"🔍 DEBUG: Looking up inspections for FEI: {fei_number}")
-                print(f"   Type: {type(fei_number)}")
-                print(f"   Value: '{fei_number}'")
-                
-                # Clean up FEI number if it exists
-                if fei_number and str(fei_number).strip() not in ['nan', '', 'None', '0000000', '0000000000']:
-                    fei_clean = str(fei_number).strip()
-                    
-                    # DEBUG: Check if this FEI exists in inspection database
-                    fei_variants = self._generate_all_id_variants(fei_clean)
-                    print(f"   Generated {len(fei_variants)} FEI variants")
-                    print(f"   First 5 variants: {fei_variants[:5]}")
-                    
-                    # Check each variant
-                    found_inspections = False
-                    for i, variant in enumerate(fei_variants[:10]):  # Check first 10
-                        if variant in self.inspection_database:
-                            inspection_count = len(self.inspection_database[variant])
-                            print(f"   ✅ FOUND {inspection_count} inspections for variant {i}: '{variant}'")
-                            found_inspections = True
-                            break
-                        else:
-                            print(f"   ❌ No inspections for variant {i}: '{variant}'")
-                    
-                    if not found_inspections:
-                        # Sample some inspection keys to see format
-                        sample_keys = list(self.inspection_database.keys())[:10]
-                        print(f"   📋 Sample inspection keys in database: {sample_keys}")
-                    
-                    # Continue with normal lookup
-                    inspections = self.get_facility_inspections(fei_clean)
-                    inspection_summary = self.get_inspection_summary(inspections)
-                    
-                    establishment['inspections'] = inspections[:10]
-                    establishment['inspection_summary'] = inspection_summary
-                    establishment['fei_number'] = fei_clean
-                else:
-                    establishment['inspections'] = []
-                    establishment['inspection_summary'] = {
-                        'total_records': 0,
-                        'status': 'No FEI number available for inspection lookup'
-                    }
-                
-                establishments.append(establishment)
-    
-    return establishments[:10]
+        return establishments[:10]
 
     def get_facility_inspections(self, fei_number: str) -> List[Dict]:
         """Get inspection history - prioritize local database, fallback to API"""

@@ -2336,7 +2336,8 @@ def main():
                                 with col1:
                                     # Show establishment name in content, not header
                                     if row['fei_number']:
-                                        st.write(f"**🔢 FDA Establishment Identifier:** {row['fei_number']}")
+                                        st.write(f"**🔢 FDA Establishment Identifier:** {row['fei_number']}", 
+                                                      help="Unique number assigned by FDA to track manufacturing facilities. Used for inspections and regulatory oversight.")
                                     if row['duns_number']:
                                         st.write(f"**🔢 Business Identifier:** {row['duns_number']}")
                                     if row['firm_name'] and row['firm_name'] != 'Unknown':
@@ -2424,12 +2425,7 @@ def main():
 
     if 'mapper' in st.session_state and st.session_state.mapper.database_loaded:
         st.sidebar.markdown("---")
-        st.sidebar.metric("FDA Database Entries", f"{len(st.session_state.mapper.fei_database):,}")
-        st.sidebar.metric("Business Database Entries", f"{len(st.session_state.mapper.duns_database):,}")
-        if hasattr(st.session_state.mapper, 'inspection_database'):
-            st.sidebar.metric("Facilities with Inspections", f"{len(st.session_state.mapper.inspection_database):,}")
-        
-        # Add database date if available
+                # Add database date if available
         if st.session_state.mapper.database_date:
             st.sidebar.markdown(f"**Database Date:** {st.session_state.mapper.database_date}")
         

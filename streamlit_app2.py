@@ -2426,9 +2426,7 @@ def main():
         st.sidebar.markdown("---")
                 # Add database date if available
         if st.session_state.mapper.database_date:
-            st.sidebar.markdown(f"**Database Date:** {st.session_state.mapper.database_date}")
-        
-        st.sidebar.markdown("---")
+            st.sidebar.markdown(f"**Database Date:** {st.session_state.mapper.database_date}")       
         st.sidebar.markdown("**Database Status:**")
         st.sidebar.success("✅ Loaded and Ready")
 

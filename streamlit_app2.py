@@ -918,17 +918,24 @@ class NDCToLocationMapper:
     def lookup_duns_establishment(self, duns_number: str) -> Optional[Dict]:
         """Look up establishment information using DUNS number from spreadsheet database"""
         try:
-            # Try EXPANDED formats for DUNS lookup
+            print(f"DEBUG: Looking up DUNS {duns_number}")
             duns_variants = self._generate_all_id_variants(duns_number)
+            print(f"DEBUG: DUNS variants: {duns_variants}")
 
             for duns_variant in duns_variants:
                 if duns_variant in self.duns_database:
                     establishment_info = self.duns_database[duns_variant].copy()
+                    print(f"DEBUG: Found establishment for DUNS {duns_variant}:")
+                    print(f"DEBUG: - Address: {establishment_info.get('address_line_1', 'Unknown')}")
+                    print(f"DEBUG: - Original DUNS: {establishment_info.get('original_duns', 'Unknown')}")
+                    print(f"DEBUG: - Original FEI: {establishment_info.get('original_fei', 'Unknown')}")
                     establishment_info['duns_number'] = duns_variant
                     return establishment_info
                     
+            print(f"DEBUG: No DUNS match found for {duns_number}")
             return None
         except Exception as e:
+            print(f"DEBUG: Error in DUNS lookup: {e}")
             return None
 
     def find_fei_duns_matches_in_spl(self, spl_id: str) -> List[FEIMatch]:

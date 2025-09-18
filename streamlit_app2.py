@@ -939,7 +939,7 @@ class NDCToLocationMapper:
             return None
 
     def find_fei_duns_matches_in_spl(self, spl_id: str) -> List[FEIMatch]:
-        """Find FEI and DUNS numbers in establishment sections only (excludes labeler)"""
+        """Find FEI and DUNS numbers - ROBUST approach for any SPL structure"""
         matches = []
         
         try:
@@ -950,71 +950,24 @@ class NDCToLocationMapper:
                 return matches
 
             content = response.text
+            processed_ids = set()
             
+            # Strategy 1: XML parsing with flexible traversal
             try:
                 root = ET.fromstring(content)
-                
-                # Find all assignedOrganization elements (these are establishments)
-                for org in root.iter():
-                    if org.tag.endswith('assignedOrganization'):
-                        # Skip if this is within author section (labeler)
-                        if self._is_within_author_section(org):
-                            continue
-                            
-                        # Look for ID elements in this establishment
-                        for id_elem in org.iter():
-                            if id_elem.tag.endswith('id') and id_elem.get('extension'):
-                                extension = id_elem.get('extension')
-                                clean_extension = re.sub(r'[^\d]', '', extension)
-                                
-                                xml_context = self._get_element_context(id_elem, root)
-                                xml_location = self._get_element_xpath(id_elem, root)
-                                
-                                # Check FEI database first
-                                fei_match_found = False
-                                fei_variants = self._generate_all_id_variants(extension)
-                                
-                                for fei_key in fei_variants:
-                                    if fei_key in self.fei_database:
-                                        establishment_name = self._extract_establishment_name_from_context(id_elem)
-                                        
-                                        match = FEIMatch(
-                                            fei_number=clean_extension,
-                                            xml_location=xml_location,
-                                            match_type='FEI_NUMBER',
-                                            establishment_name=establishment_name,
-                                            xml_context=xml_context
-                                        )
-                                        matches.append(match)
-                                        fei_match_found = True
-                                        break
-                                
-                                # Check DUNS database if no FEI match
-                                if not fei_match_found:
-                                    duns_variants = self._generate_all_id_variants(extension)
-                                    
-                                    for duns_key in duns_variants:
-                                        if duns_key in self.duns_database:
-                                            establishment_name = self._extract_establishment_name_from_context(id_elem)
-                                            
-                                            match = FEIMatch(
-                                                fei_number=clean_extension,
-                                                xml_location=xml_location,
-                                                match_type='DUNS_NUMBER',
-                                                establishment_name=establishment_name,
-                                                xml_context=xml_context
-                                            )
-                                            matches.append(match)
-                                            break
-                                
-            except ET.XMLSyntaxError as e:
-                # Fallback to regex-based approach
-                matches.extend(self._find_matches_with_regex_filtered(content, spl_id))
-                
-        except Exception as e:
-            pass
+                xml_matches = self._find_matches_flexible_xml(root, processed_ids)
+                matches.extend(xml_matches)
+            except ET.XMLSyntaxError:
+                pass
             
-        return matches
+            # Strategy 2: Regex-based fallback
+            regex_matches = self._find_matches_flexible_regex(content, processed_ids)
+            matches.extend(regex_matches)
+            
+            return matches
+            
+        except Exception as e:
+            return matches
 
     def _is_within_author_section(self, element) -> bool:
         """Check if element is within author section (labeler context)"""
@@ -1083,6 +1036,174 @@ class NDCToLocationMapper:
             return " | ".join(context_parts)
         except Exception as e:
             return "context_unavailable"
+
+    def _find_matches_flexible_xml(self, root, processed_ids: set) -> List[FEIMatch]:
+        """Flexible XML parsing that works with any SPL structure"""
+        matches = []
+        
+        # Find ALL id elements in the document
+        for id_elem in root.iter():
+            if not id_elem.tag.endswith('id') or not id_elem.get('extension'):
+                continue
+                
+            extension = id_elem.get('extension')
+            clean_extension = re.sub(r'[^\d]', '', extension)
+            
+            # Skip if already processed or too short
+            if clean_extension in processed_ids or len(clean_extension) < 7:
+                continue
+            
+            # Determine context - is this an establishment or labeler?
+            context_type = self._determine_context_type(id_elem)
+            
+            # Skip main labelers, keep establishments
+            if context_type == 'MAIN_LABELER':
+                continue
+            elif context_type in ['ESTABLISHMENT', 'UNKNOWN']:
+                # Check if this ID exists in our databases
+                match = self._create_match_from_xml_element(id_elem, extension, clean_extension, root)
+                if match:
+                    matches.append(match)
+                    processed_ids.add(clean_extension)
+        
+        return matches
+
+    def _find_matches_flexible_regex(self, content: str, processed_ids: set) -> List[FEIMatch]:
+        """Flexible regex-based matching for any SPL structure"""
+        matches = []
+        
+        # Find all ID elements that might be establishments
+        id_pattern = r'<id\s+([^>]*extension="(\d{7,15})"[^>]*)>'
+        id_matches = re.finditer(id_pattern, content, re.IGNORECASE)
+        
+        for id_match in id_matches:
+            extension = id_match.group(2)
+            clean_extension = re.sub(r'[^\d]', '', extension)
+            
+            # Skip if already processed
+            if clean_extension in processed_ids:
+                continue
+            
+            # Get context around this ID to determine if it's an establishment
+            context_start = max(0, id_match.start() - 500)
+            context_end = min(len(content), id_match.end() + 500)
+            context = content[context_start:context_end]
+            
+            # Skip if this looks like a main labeler
+            if self._is_main_labeler_context(context):
+                continue
+            
+            # Try to find establishment name
+            establishment_name = self._extract_name_from_context_regex(context)
+            
+            # Check if this ID exists in our databases
+            match = self._create_match_from_regex_flexible(extension, clean_extension, id_match, establishment_name, context)
+            if match:
+                matches.append(match)
+                processed_ids.add(clean_extension)
+        
+        return matches
+
+    def _determine_context_type(self, id_elem) -> str:
+        """Determine if an ID element represents a labeler or establishment"""
+        # Walk up the XML tree to understand context
+        current = id_elem
+        path = []
+        
+        for _ in range(10):  # Limit traversal depth
+            current = current.getparent() if hasattr(current, 'getparent') else None
+            if current is None:
+                break
+            
+            tag = current.tag.split('}')[-1] if '}' in current.tag else current.tag
+            path.append(tag)
+            
+            # Main labeler patterns
+            if tag == 'representedOrganization' and 'author' in path:
+                return 'MAIN_LABELER'
+            
+            # Establishment patterns
+            if tag == 'assignedOrganization':
+                # Check if this is nested under author (could be establishment)
+                if 'author' in path:
+                    return 'ESTABLISHMENT'
+                # Or if it's in other contexts
+                return 'ESTABLISHMENT'
+        
+        return 'UNKNOWN'
+
+    def _is_main_labeler_context(self, context: str) -> bool:
+        """Check if context suggests this is a main labeler rather than establishment"""
+        # Look for representedOrganization pattern (main labeler)
+        if '<representedOrganization' in context and '<author' in context:
+            # Check if there's no assignedOrganization between them
+            repr_pos = context.find('<representedOrganization')
+            author_pos = context.find('<author')
+            if author_pos < repr_pos:
+                between_text = context[author_pos:repr_pos]
+                if '<assignedOrganization' not in between_text:
+                    return True
+        return False
+
+    def _create_match_from_xml_element(self, id_elem, extension: str, clean_extension: str, root) -> Optional[FEIMatch]:
+        """Create match with database lookup"""
+        # Try FEI database first
+        fei_variants = self._generate_all_id_variants(extension)
+        for fei_key in fei_variants:
+            if fei_key in self.fei_database:
+                return FEIMatch(
+                    fei_number=clean_extension,
+                    xml_location=self._get_element_xpath(id_elem, root),
+                    match_type='FEI_NUMBER',
+                    establishment_name=self._extract_establishment_name_from_context(id_elem),
+                    xml_context=self._get_element_context(id_elem, root)
+                )
+        
+        # Try DUNS database
+        duns_variants = self._generate_all_id_variants(extension)
+        for duns_key in duns_variants:
+            if duns_key in self.duns_database:
+                return FEIMatch(
+                    fei_number=clean_extension,
+                    xml_location=self._get_element_xpath(id_elem, root),
+                    match_type='DUNS_NUMBER',
+                    establishment_name=self._extract_establishment_name_from_context(id_elem),
+                    xml_context=self._get_element_context(id_elem, root)
+                )
+        
+        return None
+
+    def _create_match_from_regex_flexible(self, extension: str, clean_extension: str, id_match, establishment_name: str, context: str) -> Optional[FEIMatch]:
+        """Create match from regex parsing with database lookup"""
+        # Calculate line number for location
+        line_num = id_match.string[:id_match.start()].count('\n') + 1
+        xml_location = f"Line {line_num} (regex)"
+        
+        # Try FEI database first
+        fei_variants = self._generate_all_id_variants(extension)
+        for fei_key in fei_variants:
+            if fei_key in self.fei_database:
+                return FEIMatch(
+                    fei_number=clean_extension,
+                    xml_location=xml_location,
+                    match_type='FEI_NUMBER',
+                    establishment_name=establishment_name,
+                    xml_context=context[:200] + "..." if len(context) > 200 else context
+                )
+        
+        # Try DUNS database
+        duns_variants = self._generate_all_id_variants(extension)
+        for duns_key in duns_variants:
+            if duns_key in self.duns_database:
+                return FEIMatch(
+                    fei_number=clean_extension,
+                    xml_location=xml_location,
+                    match_type='DUNS_NUMBER',
+                    establishment_name=establishment_name,
+                    xml_context=context[:200] + "..." if len(context) > 200 else context
+                )
+        
+        return None
 
     def _extract_establishment_name_from_context(self, element) -> str:
         """Extract establishment name from XML context"""

@@ -1221,7 +1221,18 @@ class NDCToLocationMapper:
         }
 
         # Look for performance elements with actDefinition (this is the correct structure for SPL)
-        performance_elements = re.findall(r'<performance[^>]*>.*?</performance>', section, re.DOTALL | re.IGNORECASE)
+        # FIXED - Only get direct performance elements, not nested ones:
+        performance_elements = []
+        # Split the section to find performance elements that belong directly to this establishment
+        # Look for performance elements that come after the establishment ID but before any nested assignedEntity
+        parts = re.split(r'<assignedEntity>', section)
+        if len(parts) > 1:
+            # Take the first part after the main establishment (before any nested establishments)
+            main_establishment_section = parts[1].split('</assignedEntity>')[0] if '</assignedEntity>' in parts[1] else parts[1]
+            performance_elements = re.findall(r'<performance[^>]*>.*?</performance>', main_establishment_section, re.DOTALL | re.IGNORECASE)
+        else:
+            # Fallback to original method if structure is different
+            performance_elements = re.findall(r'<performance[^>]*>.*?</performance>', section, re.DOTALL | re.IGNORECASE)
 
         # ADD THIS NEW DEBUG CODE HERE:
         if "080129000" in establishment_name or "Genentech" in establishment_name:

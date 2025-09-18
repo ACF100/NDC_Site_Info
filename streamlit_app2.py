@@ -1232,6 +1232,10 @@ class NDCToLocationMapper:
                 operation_code = operation_code_match.group(1)
                 display_name = operation_code_match.group(2).lower()
                 
+                # ADD THIS DEBUG LINE:
+                if establishment_name == "Regeneron Pharmaceuticals, Inc.":
+                    st.write(f"DEBUG: Found operation code '{operation_code}' with display name '{display_name}'")
+
                 # Check for API Manufacture first (more specific)
                 if operation_code == 'C25394' or 'api' in display_name:
                     operation_found = 'API Manufacture'

@@ -179,15 +179,22 @@ class NDCToLocationMapper:
                 # More flexible FEI column matching
                 if ('fei' in col_lower and 'number' in col_lower) or col_lower == 'feinumber':
                     fei_col = col_original
-                # More flexible DUNS column matching
+                # More flexible DUNS column matching - EXCLUDE registrant DUNS explicitly
                 elif ('duns' in col_lower and 'number' in col_lower) or col_lower == 'dunsnumber':
-                    duns_col = col_original
+                    # CRITICAL: Exclude any column with registrant/owner/parent in the name
+                    if not any(word in col_lower for word in ['registrant', 'owner', 'parent', 'company']):
+                        duns_col = col_original
+                        print(f"DEBUG: Selected DUNS column: {col_original}")
+                    else:
+                        print(f"DEBUG: Skipping registrant/owner DUNS column: {col_original}")
                 # More flexible ADDRESS column matching
                 elif 'address' in col_lower:
                     address_col = col_original
                 # More flexible FIRM_NAME column matching
                 elif ('firm' in col_lower and 'name' in col_lower) or col_lower == 'firmname':
                     firm_name_col = col_original
+
+            print(f"DEBUG: Final columns - FEI: {fei_col}, DUNS: {duns_col}, Address: {address_col}, Firm: {firm_name_col}")
 
             if not fei_col and not duns_col:
                 return
@@ -217,9 +224,9 @@ class NDCToLocationMapper:
                         if firm_name == 'nan' or firm_name == '':
                             firm_name = 'Unknown'
 
-                    # Get BOTH FEI and DUNS from the same row
+                    # Get BOTH FEI and FACILITY DUNS from the same row (NOT registrant DUNS)
                     fei_number = None
-                    duns_number = None
+                    facility_duns_number = None
                     
                     if fei_col and not pd.isna(row[fei_col]):
                         fei_raw = str(row[fei_col]).strip()
@@ -228,15 +235,16 @@ class NDCToLocationMapper:
                             if len(fei_clean) >= 7:
                                 fei_number = fei_raw
 
+                    # CRITICAL FIX: Only use facility DUNS, not registrant DUNS
                     if duns_col and not pd.isna(row[duns_col]):
                         duns_raw = str(row[duns_col]).strip()
                         if duns_raw != 'nan' and duns_raw != '':
                             duns_clean = re.sub(r'[^\d]', '', duns_raw)
                             if len(duns_clean) >= 8:
-                                duns_number = duns_raw
+                                facility_duns_number = duns_raw
 
                     # Only process if we have at least one identifier
-                    if not fei_number and not duns_number:
+                    if not fei_number and not facility_duns_number:
                         continue
 
                     # Create establishment data with BOTH identifiers
@@ -251,8 +259,8 @@ class NDCToLocationMapper:
                         'latitude': address_parts.get('latitude'),
                         'longitude': address_parts.get('longitude'),
                         'search_method': 'spreadsheet_database',
-                        'original_fei': fei_number,      # Store both identifiers
-                        'original_duns': duns_number     # Store both identifiers
+                        'original_fei': fei_number,                    # Store FEI
+                        'original_duns': facility_duns_number          # Store FACILITY DUNS only
                     }
 
                     # Store under FEI variants if FEI exists
@@ -262,6 +270,14 @@ class NDCToLocationMapper:
                             if key:
                                 self.fei_database[key] = establishment_data.copy()
                         fei_count += 1
+
+                    # Store under FACILITY DUNS variants if FACILITY DUNS exists (NOT registrant DUNS)
+                    if facility_duns_number:
+                        duns_variants = self._generate_all_id_variants(facility_duns_number)
+                        for key in duns_variants:
+                            if key:
+                                self.duns_database[key] = establishment_data.copy()
+                        duns_count += 1
 
                     # Store under DUNS variants if DUNS exists
                     if duns_number:
@@ -902,21 +918,28 @@ class NDCToLocationMapper:
     def lookup_duns_establishment(self, duns_number: str) -> Optional[Dict]:
         """Look up establishment information using DUNS number from spreadsheet database"""
         try:
-            # Try EXPANDED formats for DUNS lookup
+            st.write(f"DEBUG: Looking up DUNS {duns_number}")
             duns_variants = self._generate_all_id_variants(duns_number)
+            st.write(f"DEBUG: DUNS variants: {duns_variants}")
 
             for duns_variant in duns_variants:
                 if duns_variant in self.duns_database:
                     establishment_info = self.duns_database[duns_variant].copy()
+                    st.write(f"DEBUG: Found establishment for DUNS {duns_variant}:")
+                    st.write(f"DEBUG: - Address: {establishment_info.get('address_line_1', 'Unknown')}")
+                    st.write(f"DEBUG: - Original DUNS: {establishment_info.get('original_duns', 'Unknown')}")
+                    st.write(f"DEBUG: - Original FEI: {establishment_info.get('original_fei', 'Unknown')}")
                     establishment_info['duns_number'] = duns_variant
                     return establishment_info
                     
+            st.write(f"DEBUG: No DUNS match found for {duns_number}")
             return None
         except Exception as e:
+            st.write(f"DEBUG: Error in DUNS lookup: {e}")
             return None
 
     def find_fei_duns_matches_in_spl(self, spl_id: str) -> List[FEIMatch]:
-        """Find FEI and DUNS numbers in SPL that match the spreadsheet database and return their XML locations"""
+        """Find FEI and DUNS numbers in establishment sections only (excludes labeler)"""
         matches = []
         
         try:
@@ -928,68 +951,79 @@ class NDCToLocationMapper:
 
             content = response.text
             
-            # Parse XML to get proper structure
             try:
                 root = ET.fromstring(content)
                 
-                # Find all ID elements and check their context
-                for elem in root.iter():
-                    if elem.tag.endswith('id') and elem.get('extension'):
-                        extension = elem.get('extension')
-                        root_oid = elem.get('root', '')
-                        
-                        # Clean the extension (remove non-digits)
-                        clean_extension = re.sub(r'[^\d]', '', extension)
-                        
-                        # Get XML location/context information
-                        xml_context = self._get_element_context(elem, root)
-                        xml_location = self._get_element_xpath(elem, root)
-                        
-                        # Check if this is an FEI number match (try EXPANDED formats)
-                        fei_match_found = False
-                        fei_variants = self._generate_all_id_variants(extension)
-                        
-                        for fei_key in fei_variants:
-                            if fei_key in self.fei_database:
-                                establishment_name = self._extract_establishment_name_from_context(elem)
+                # Find all assignedOrganization elements (these are establishments)
+                for org in root.iter():
+                    if org.tag.endswith('assignedOrganization'):
+                        # Skip if this is within author section (labeler)
+                        if self._is_within_author_section(org):
+                            continue
+                            
+                        # Look for ID elements in this establishment
+                        for id_elem in org.iter():
+                            if id_elem.tag.endswith('id') and id_elem.get('extension'):
+                                extension = id_elem.get('extension')
+                                clean_extension = re.sub(r'[^\d]', '', extension)
                                 
-                                match = FEIMatch(
-                                    fei_number=clean_extension,
-                                    xml_location=xml_location,
-                                    match_type='FEI_NUMBER',
-                                    establishment_name=establishment_name,
-                                    xml_context=xml_context
-                                )
-                                matches.append(match)
-                                fei_match_found = True
-                                break
-                        
-                        # Check if this is a DUNS number match (try EXPANDED formats)
-                        if not fei_match_found:
-                            duns_variants = self._generate_all_id_variants(extension)
-                            
-                            for duns_key in duns_variants:
-                                if duns_key in self.duns_database:
-                                    establishment_name = self._extract_establishment_name_from_context(elem)
+                                xml_context = self._get_element_context(id_elem, root)
+                                xml_location = self._get_element_xpath(id_elem, root)
+                                
+                                # Check FEI database first
+                                fei_match_found = False
+                                fei_variants = self._generate_all_id_variants(extension)
+                                
+                                for fei_key in fei_variants:
+                                    if fei_key in self.fei_database:
+                                        establishment_name = self._extract_establishment_name_from_context(id_elem)
+                                        
+                                        match = FEIMatch(
+                                            fei_number=clean_extension,
+                                            xml_location=xml_location,
+                                            match_type='FEI_NUMBER',
+                                            establishment_name=establishment_name,
+                                            xml_context=xml_context
+                                        )
+                                        matches.append(match)
+                                        fei_match_found = True
+                                        break
+                                
+                                # Check DUNS database if no FEI match
+                                if not fei_match_found:
+                                    duns_variants = self._generate_all_id_variants(extension)
                                     
-                                    match = FEIMatch(
-                                        fei_number=clean_extension,  # Using same field for both FEI and DUNS
-                                        xml_location=xml_location,
-                                        match_type='DUNS_NUMBER',
-                                        establishment_name=establishment_name,
-                                        xml_context=xml_context
-                                    )
-                                    matches.append(match)
-                                    break
-                            
+                                    for duns_key in duns_variants:
+                                        if duns_key in self.duns_database:
+                                            establishment_name = self._extract_establishment_name_from_context(id_elem)
+                                            
+                                            match = FEIMatch(
+                                                fei_number=clean_extension,
+                                                xml_location=xml_location,
+                                                match_type='DUNS_NUMBER',
+                                                establishment_name=establishment_name,
+                                                xml_context=xml_context
+                                            )
+                                            matches.append(match)
+                                            break
+                                
             except ET.XMLSyntaxError as e:
                 # Fallback to regex-based approach
-                matches.extend(self._find_matches_with_regex(content, spl_id))
+                matches.extend(self._find_matches_with_regex_filtered(content, spl_id))
                 
         except Exception as e:
             pass
             
         return matches
+
+    def _is_within_author_section(self, element) -> bool:
+        """Check if element is within author section (labeler context)"""
+        current = element
+        while current is not None:
+            if current.tag.endswith('author'):
+                return True
+            current = current.getparent() if hasattr(current, 'getparent') else None
+        return False
 
     def _get_element_xpath(self, element, root) -> str:
         """Generate XPath-like location for an element"""
@@ -1074,63 +1108,78 @@ class NDCToLocationMapper:
         except Exception as e:
             return "Unknown"
 
-    def _find_matches_with_regex(self, content: str, spl_id: str) -> List[FEIMatch]:
-        """Fallback regex-based matching with location information"""
+    def _find_matches_with_regex_filtered(self, content: str, spl_id: str) -> List[FEIMatch]:
+        """Fallback regex-based matching that excludes author sections"""
         matches = []
         
         try:
-            # Find all ID elements with extension attributes
-            id_pattern = r'<id\s+([^>]*extension="(\d{7,15})"[^>]*)>'
-            id_matches = re.finditer(id_pattern, content, re.IGNORECASE)
+            # Find assignedOrganization sections that are NOT in author sections
+            # Look for assignedOrganization that contains ID elements
+            org_pattern = r'<assignedOrganization[^>]*>.*?</assignedOrganization>'
+            org_matches = re.finditer(org_pattern, content, re.DOTALL | re.IGNORECASE)
             
-            for match in id_matches:
-                full_match = match.group(0)
-                extension = match.group(2)
-                clean_extension = re.sub(r'[^\d]', '', extension)
+            for org_match in org_matches:
+                org_content = org_match.group(0)
                 
-                # Calculate line number for location
-                line_num = content[:match.start()].count('\n') + 1
+                # Skip if this organization is within an author section
+                # Check 500 characters before this match for <author>
+                context_start = max(0, org_match.start() - 500)
+                context_before = content[context_start:org_match.start()]
                 
-                # Get surrounding context (100 chars before and after)
-                start_context = max(0, match.start() - 100)
-                end_context = min(len(content), match.end() + 100)
-                xml_context = content[start_context:end_context].replace('\n', ' ').strip()
+                # Count author tags vs closing author tags to see if we're inside one
+                author_opens = context_before.count('<author')
+                author_closes = context_before.count('</author>')
                 
-                xml_location = f"Line {line_num} (regex-based)"
+                if author_opens > author_closes:
+                    continue  # We're inside an author section, skip
                 
-                # Check for FEI matches (try EXPANDED formats)
-                fei_match_found = False
-                fei_variants = self._generate_all_id_variants(extension)
+                # Find IDs within this organization
+                id_pattern = r'<id\\s+([^>]*extension="(\\d{7,15})"[^>]*)>'
+                id_matches = re.finditer(id_pattern, org_content, re.IGNORECASE)
                 
-                for fei_key in fei_variants:
-                    if fei_key in self.fei_database:
-                        fei_match = FEIMatch(
-                            fei_number=clean_extension,
-                            xml_location=xml_location,
-                            match_type='FEI_NUMBER',
-                            establishment_name=self._extract_name_from_context_regex(xml_context),
-                            xml_context=xml_context[:200] + "..." if len(xml_context) > 200 else xml_context
-                        )
-                        matches.append(fei_match)
-                        fei_match_found = True
-                        break
-                
-                # Check for DUNS matches (try EXPANDED formats)
-                if not fei_match_found:
+                for id_match in id_matches:
+                    extension = id_match.group(2)
+                    clean_extension = re.sub(r'[^\\d]', '', extension)
+                    
+                    # Calculate line number for location
+                    line_num = content[:org_match.start() + id_match.start()].count('\\n') + 1
+                    xml_location = f"Line {line_num} (regex-based)"
+                    
+                    # Get surrounding context
+                    start_context = max(0, id_match.start() - 100)
+                    end_context = min(len(org_content), id_match.end() + 100)
+                    xml_context = org_content[start_context:end_context].replace('\\n', ' ').strip()
+                    
+                    # Check databases
+                    fei_variants = self._generate_all_id_variants(extension)
                     duns_variants = self._generate_all_id_variants(extension)
                     
-                    for duns_key in duns_variants:
-                        if duns_key in self.duns_database:
-                            duns_match = FEIMatch(
+                    # Try FEI first
+                    for fei_key in fei_variants:
+                        if fei_key in self.fei_database:
+                            fei_match = FEIMatch(
                                 fei_number=clean_extension,
                                 xml_location=xml_location,
-                                match_type='DUNS_NUMBER',
+                                match_type='FEI_NUMBER',
                                 establishment_name=self._extract_name_from_context_regex(xml_context),
                                 xml_context=xml_context[:200] + "..." if len(xml_context) > 200 else xml_context
                             )
-                            matches.append(duns_match)
+                            matches.append(fei_match)
                             break
-                    
+                    else:
+                        # Try DUNS if no FEI match
+                        for duns_key in duns_variants:
+                            if duns_key in self.duns_database:
+                                duns_match = FEIMatch(
+                                    fei_number=clean_extension,
+                                    xml_location=xml_location,
+                                    match_type='DUNS_NUMBER',
+                                    establishment_name=self._extract_name_from_context_regex(xml_context),
+                                    xml_context=xml_context[:200] + "..." if len(xml_context) > 200 else xml_context
+                                )
+                                matches.append(duns_match)
+                                break
+                        
         except Exception as e:
             pass
             
@@ -2282,6 +2331,8 @@ def main():
     
     # Search functionality
     if search_btn and ndc_input:
+        st.write("🔍 **Debug Output:**")
+        
         with st.spinner(f"Looking up manufacturing locations for {ndc_input}..."):
             try:
                 results_df = st.session_state.mapper.process_single_ndc(ndc_input)

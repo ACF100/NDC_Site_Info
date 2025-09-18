@@ -1212,10 +1212,10 @@ class NDCToLocationMapper:
             'C82401': 'Manufacture', 
             'C25391': 'Analysis',
             'C84731': 'Pack',
-            'C25392': 'Label',
+            'C25392': 'Sterilize',
             'C48482': 'Repack',
             'C73606': 'Relabel',
-            'C84732': 'Sterilize',
+            'C84732': 'Label',
             'C25394': 'API Manufacture',
             'C43359': 'Manufacture'
         }
@@ -1294,10 +1294,10 @@ class NDCToLocationMapper:
             'C82401': 'Manufacture', 
             'C25391': 'Analysis',
             'C84731': 'Pack',
-            'C25392': 'Label',
+            'C25392': 'Sterilize',
             'C48482': 'Repack',
             'C73606': 'Relabel',
-            'C84732': 'Sterilize',
+            'C84732': 'Label',
             'C25394': 'API Manufacture',
             'C43359': 'Manufacture'
         }

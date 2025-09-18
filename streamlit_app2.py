@@ -1223,6 +1223,13 @@ class NDCToLocationMapper:
         # Look for performance elements with actDefinition (this is the correct structure for SPL)
         performance_elements = re.findall(r'<performance[^>]*>.*?</performance>', section, re.DOTALL | re.IGNORECASE)
 
+        # ADD THIS NEW DEBUG CODE HERE:
+        if "080129000" in establishment_name or "Genentech" in establishment_name:
+            st.write(f"\n=== XML SECTION BEING PROCESSED ===")
+            st.write(f"Establishment: {establishment_name}")
+            st.write(f"Section content (first 1000 chars): {section[:1000]}")
+            st.write(f"=== END XML SECTION ===")
+
         # ADD DEBUG CODE HERE:
         if "080129000" in establishment_name or "Genentech" in establishment_name:
             st.write(f"\n=== DEBUG: {establishment_name} ===")

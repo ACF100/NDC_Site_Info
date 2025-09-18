@@ -2815,7 +2815,7 @@ def main():
                     st.write(f"**SPL ID:** {product_info.spl_id}")
                     
                     # ADDED: Show all establishments found in SPL
-                    matches = st.session_state.mapper.find_fei_duns_matches_in_spl(product_info.spl_id):
+                    matches = st.session_state.mapper.find_fei_duns_matches_in_spl(product_info.spl_id)
                 results_df = st.session_state.mapper.process_single_ndc(ndc_input)
                 
                 if len(results_df) > 0:

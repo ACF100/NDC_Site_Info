@@ -1200,6 +1200,8 @@ class NDCToLocationMapper:
         """Extract operations that are specific to the target NDC from an establishment section"""
         operations = []
         quotes = []
+        api_manufacture_codes = set()  # Track which codes gave us API Manufacture
+        manufacture_codes = set()      # Track which codes gave us generic Manufacture
 
         # Generate all possible NDC variants for matching
         ndc_variants = self.normalize_ndc_for_matching(target_ndc)
@@ -1228,10 +1230,16 @@ class NDCToLocationMapper:
             
             if operation_code_match:
                 operation_code = operation_code_match.group(1)
+                display_name = operation_code_match.group(2).lower()
                 
-                # Map operation code to our standard operation names
-                if operation_code in operation_codes:
+                # Check for API Manufacture first (more specific)
+                if operation_code == 'C25394' or 'api' in display_name:
+                    operation_found = 'API Manufacture'
+                    api_manufacture_codes.add(operation_code)
+                elif operation_code in operation_codes:
                     operation_found = operation_codes[operation_code]
+                    if operation_found == 'Manufacture':
+                        manufacture_codes.add(operation_code)
 
             if operation_found:
                 # Look for NDC codes in manufacturedMaterialKind
@@ -1257,10 +1265,17 @@ class NDCToLocationMapper:
                     operations.append(operation_found)
                     quotes.append(f'"Found {operation_found} operation for National Drug Code {target_ndc} in {establishment_name}"')
 
-        # Remove "Manufacture" if "API Manufacture" is present
+        # SMART FILTERING: Only remove "Manufacture" if we found API Manufacture 
+        # AND the Manufacture came from a code that could be misinterpreted
         if 'API Manufacture' in operations and 'Manufacture' in operations:
-            operations.remove('Manufacture')
-            quotes = [q for q in quotes if 'Manufacture operation' not in q or 'API Manufacture operation' in q]
+            # Only remove if they seem to be the same operation detected differently
+            # Keep both if they're truly separate operations
+            if len(api_manufacture_codes) > 0 and len(manufacture_codes) > 0:
+                # Check if any manufacture codes overlap with what should be API codes
+                overlapping = api_manufacture_codes.intersection(manufacture_codes)
+                if overlapping or len(operations) == 2:  # If only these two operations, likely duplicate
+                    operations.remove('Manufacture')
+                    quotes = [q for q in quotes if 'Manufacture operation' not in q or 'API Manufacture operation' in q]
 
         return operations, quotes
 
@@ -1323,10 +1338,12 @@ class NDCToLocationMapper:
                 operations.append(operation_found)
                 quotes.append(f'Found {operation_found} operation in {establishment_name}')
 
-        # Remove "Manufacture" if "API Manufacture" is present
+        # SMART FILTERING: Same logic as above
         if 'API Manufacture' in operations and 'Manufacture' in operations:
-            operations.remove('Manufacture')
-            quotes = [q for q in quotes if 'Manufacture operation' not in q or 'API Manufacture operation' in q]
+            # Only remove if they seem to be the same operation, not separate ones
+            if len([op for op in operations if 'API' in op]) == 1 and len([op for op in operations if op == 'Manufacture']) == 1:
+                operations.remove('Manufacture')
+                quotes = [q for q in quotes if 'Manufacture operation' not in q or 'API Manufacture operation' in q]
 
         return operations, quotes
 

@@ -179,17 +179,22 @@ class NDCToLocationMapper:
                 # More flexible FEI column matching
                 if ('fei' in col_lower and 'number' in col_lower) or col_lower == 'feinumber':
                     fei_col = col_original
-                # More flexible DUNS column matching - ONLY facility DUNS, not registrant DUNS
+                # More flexible DUNS column matching - EXCLUDE registrant DUNS explicitly
                 elif ('duns' in col_lower and 'number' in col_lower) or col_lower == 'dunsnumber':
-                    # Make sure this is NOT the registrant DUNS column
-                    if 'registrant' not in col_lower and 'owner' not in col_lower and 'parent' not in col_lower:
+                    # CRITICAL: Exclude any column with registrant/owner/parent in the name
+                    if not any(word in col_lower for word in ['registrant', 'owner', 'parent', 'company']):
                         duns_col = col_original
+                        print(f"DEBUG: Selected DUNS column: {col_original}")
+                    else:
+                        print(f"DEBUG: Skipping registrant/owner DUNS column: {col_original}")
                 # More flexible ADDRESS column matching
                 elif 'address' in col_lower:
                     address_col = col_original
                 # More flexible FIRM_NAME column matching
                 elif ('firm' in col_lower and 'name' in col_lower) or col_lower == 'firmname':
                     firm_name_col = col_original
+
+            print(f"DEBUG: Final columns - FEI: {fei_col}, DUNS: {duns_col}, Address: {address_col}, Firm: {firm_name_col}")
 
             if not fei_col and not duns_col:
                 return

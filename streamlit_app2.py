@@ -1317,6 +1317,254 @@ class NDCToLocationMapper:
         except Exception as e:
             return "Unknown"
 
+    def _find_matches_flexible_xml(self, root, processed_ids: set) -> List[FEIMatch]:
+        """Flexible XML parsing that works with any SPL structure"""
+        matches = []
+        
+        # Find ALL id elements in the document
+        for id_elem in root.iter():
+            if not id_elem.tag.endswith('id') or not id_elem.get('extension'):
+                continue
+                
+            extension = id_elem.get('extension')
+            clean_extension = re.sub(r'[^\d]', '', extension)
+            
+            # Skip if already processed or too short
+            if clean_extension in processed_ids or len(clean_extension) < 7:
+                continue
+            
+            # Determine context - is this an establishment or labeler?
+            context_type = self._determine_context_type(id_elem)
+            
+            # Skip main labelers, keep establishments
+            if context_type == 'MAIN_LABELER':
+                continue
+            elif context_type in ['ESTABLISHMENT', 'UNKNOWN']:
+                # Check if this ID exists in our databases
+                match = self._create_match_from_xml_element(id_elem, extension, clean_extension, root)
+                if match:
+                    matches.append(match)
+                    processed_ids.add(clean_extension)
+        
+        return matches
+
+    def _find_matches_flexible_regex(self, content: str, processed_ids: set) -> List[FEIMatch]:
+        """Flexible regex-based matching for any SPL structure"""
+        matches = []
+        
+        # Find all ID elements that might be establishments
+        id_pattern = r'<id\s+([^>]*extension="(\d{7,15})"[^>]*)>'
+        id_matches = re.finditer(id_pattern, content, re.IGNORECASE)
+        
+        for id_match in id_matches:
+            extension = id_match.group(2)
+            clean_extension = re.sub(r'[^\d]', '', extension)
+            
+            # Skip if already processed
+            if clean_extension in processed_ids:
+                continue
+            
+            # Get context around this ID to determine if it's an establishment
+            context_start = max(0, id_match.start() - 500)
+            context_end = min(len(content), id_match.end() + 500)
+            context = content[context_start:context_end]
+            
+            # Skip if this looks like a main labeler
+            if self._is_main_labeler_context(context):
+                continue
+            
+            # Try to find establishment name
+            establishment_name = self._extract_name_from_context_regex(context)
+            
+            # Check if this ID exists in our databases
+            match = self._create_match_from_regex_flexible(extension, clean_extension, id_match, establishment_name, context)
+            if match:
+                matches.append(match)
+                processed_ids.add(clean_extension)
+        
+        return matches
+
+    def _determine_context_type(self, id_elem) -> str:
+        """Determine if an ID element represents a labeler or establishment"""
+        # Walk up the XML tree to understand context
+        current = id_elem
+        path = []
+        
+        for _ in range(10):  # Limit traversal depth
+            current = current.getparent() if hasattr(current, 'getparent') else None
+            if current is None:
+                break
+            
+            tag = current.tag.split('}')[-1] if '}' in current.tag else current.tag
+            path.append(tag)
+            
+            # Main labeler patterns
+            if tag == 'representedOrganization' and 'author' in path:
+                return 'MAIN_LABELER'
+            
+            # Establishment patterns
+            if tag == 'assignedOrganization':
+                # Check if this is nested under author (could be establishment)
+                if 'author' in path:
+                    return 'ESTABLISHMENT'
+                # Or if it's in other contexts
+                return 'ESTABLISHMENT'
+        
+        return 'UNKNOWN'
+
+    def _is_main_labeler_context(self, context: str) -> bool:
+        """Check if context suggests this is a main labeler rather than establishment"""
+        # Look for representedOrganization pattern (main labeler)
+        if '<representedOrganization' in context and '<author' in context:
+            # Check if there's no assignedOrganization between them
+            repr_pos = context.find('<representedOrganization')
+            author_pos = context.find('<author')
+            if author_pos < repr_pos:
+                between_text = context[author_pos:repr_pos]
+                if '<assignedOrganization' not in between_text:
+                    return True
+        return False
+
+    def _create_match_from_xml_element(self, id_elem, extension: str, clean_extension: str, root) -> Optional[FEIMatch]:
+        """Create match with database lookup"""
+        # Try FEI database first
+        fei_variants = self._generate_all_id_variants(extension)
+        for fei_key in fei_variants:
+            if fei_key in self.fei_database:
+                return FEIMatch(
+                    fei_number=clean_extension,
+                    xml_location=self._get_element_xpath(id_elem, root),
+                    match_type='FEI_NUMBER',
+                    establishment_name=self._extract_establishment_name_from_context(id_elem),
+                    xml_context=self._get_element_context(id_elem, root)
+                )
+        
+        # Try DUNS database
+        duns_variants = self._generate_all_id_variants(extension)
+        for duns_key in duns_variants:
+            if duns_key in self.duns_database:
+                return FEIMatch(
+                    fei_number=clean_extension,
+                    xml_location=self._get_element_xpath(id_elem, root),
+                    match_type='DUNS_NUMBER',
+                    establishment_name=self._extract_establishment_name_from_context(id_elem),
+                    xml_context=self._get_element_context(id_elem, root)
+                )
+        
+        return None
+
+    def _create_match_from_regex_flexible(self, extension: str, clean_extension: str, id_match, establishment_name: str, context: str) -> Optional[FEIMatch]:
+        """Create match from regex parsing with database lookup"""
+        # Calculate line number for location
+        line_num = id_match.string[:id_match.start()].count('\n') + 1
+        xml_location = f"Line {line_num} (regex)"
+        
+        # Try FEI database first
+        fei_variants = self._generate_all_id_variants(extension)
+        for fei_key in fei_variants:
+            if fei_key in self.fei_database:
+                return FEIMatch(
+                    fei_number=clean_extension,
+                    xml_location=xml_location,
+                    match_type='FEI_NUMBER',
+                    establishment_name=establishment_name,
+                    xml_context=context[:200] + "..." if len(context) > 200 else context
+                )
+        
+        # Try DUNS database
+        duns_variants = self._generate_all_id_variants(extension)
+        for duns_key in duns_variants:
+            if duns_key in self.duns_database:
+                return FEIMatch(
+                    fei_number=clean_extension,
+                    xml_location=xml_location,
+                    match_type='DUNS_NUMBER',
+                    establishment_name=establishment_name,
+                    xml_context=context[:200] + "..." if len(context) > 200 else context
+                )
+        
+        return None
+
+    def _extract_operations_flexible(self, content: str, establishment_id: str, target_ndc: str, establishment_info: Dict) -> Tuple[List[str], List[str]]:
+        """Flexible operation extraction that works with various XML structures"""
+        operations = []
+        quotes = []
+        
+        # Generate NDC variants for matching
+        ndc_variants = self.normalize_ndc_for_matching(target_ndc)
+        
+        # Operation code mappings
+        operation_codes = {
+            'C43360': 'Manufacture', 'C82401': 'Manufacture', 'C25391': 'Analysis',
+            'C84731': 'Pack', 'C84732': 'Label', 'C48482': 'Repack',
+            'C73606': 'Relabel', 'C25392': 'Sterilize', 'C25394': 'API Manufacture',
+            'C43359': 'Manufacture'
+        }
+        
+        # Strategy 1: Find operations near this establishment ID
+        # Look for performance/businessOperation elements that are "close" to our establishment ID
+        
+        # Split content around our establishment ID
+        id_pattern = rf'<id[^>]*extension="[^"]*{re.escape(establishment_id)}"[^>]*>'
+        id_matches = list(re.finditer(id_pattern, content, re.IGNORECASE))
+        
+        for id_match in id_matches:
+            # Look for operations within reasonable distance (e.g., next 5000 characters)
+            search_start = id_match.end()
+            search_end = min(len(content), search_start + 5000)
+            search_section = content[search_start:search_end]
+            
+            # Find performance elements
+            perf_elements = re.findall(r'<performance[^>]*>.*?</performance>', search_section, re.DOTALL | re.IGNORECASE)
+            perf_elements.extend(re.findall(r'<businessOperation[^>]*>.*?</businessOperation>', search_section, re.DOTALL | re.IGNORECASE))
+            
+            for perf_elem in perf_elements:
+                # Extract operation
+                operation_found = None
+                code_match = re.search(r'<code[^>]*code="([^"]*)"[^>]*(?:displayName="([^"]*)")?', perf_elem, re.IGNORECASE)
+                
+                if code_match:
+                    operation_code = code_match.group(1)
+                    display_name = code_match.group(2) or ""
+                    
+                    if operation_code == 'C25394' or 'api' in display_name.lower():
+                        operation_found = 'API Manufacture'
+                    elif operation_code in operation_codes:
+                        operation_found = operation_codes[operation_code]
+                
+                if operation_found:
+                    # Check for NDC match
+                    ndc_matches = re.findall(r'<code[^>]*code="([^"]*)"[^>]*codeSystem="2\.16\.840\.1\.113883\.6\.69"', perf_elem, re.IGNORECASE)
+                    
+                    ndc_found = False
+                    for ndc_code in ndc_matches:
+                        ndc_variants_found = self.normalize_ndc_for_matching(ndc_code.strip())
+                        if any(v in ndc_variants for v in ndc_variants_found):
+                            ndc_found = True
+                            break
+                    
+                    if ndc_found and operation_found not in operations:
+                        operations.append(operation_found)
+                        quotes.append(f'Found {operation_found} operation for National Drug Code {target_ndc}')
+        
+        # Strategy 2: If no NDC-specific operations found, look for general operations
+        if not operations:
+            # Look for any operations associated with this establishment (without NDC requirement)
+            for id_match in id_matches:
+                search_start = id_match.end()
+                search_end = min(len(content), search_start + 3000)
+                search_section = content[search_start:search_end]
+                
+                # Look for any operation codes
+                all_operations = re.findall(r'<code[^>]*code="([^"]*)"[^>]*displayName="([^"]*)"', search_section, re.IGNORECASE)
+                
+                for op_code, display_name in all_operations:
+                    if op_code in operation_codes and operation_codes[op_code] not in operations:
+                        operations.append(operation_codes[op_code])
+                        quotes.append(f'Found {operation_codes[op_code]} operation (general) at this establishment')
+        
+        return operations, quotes
+
     def extract_ndc_specific_operations(self, section: str, target_ndc: str, establishment_name: str) -> Tuple[List[str], List[str]]:
         """Extract operations that are specific to the target NDC from an establishment section"""
         operations = []

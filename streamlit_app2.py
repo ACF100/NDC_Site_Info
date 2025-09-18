@@ -939,7 +939,7 @@ class NDCToLocationMapper:
             return None
 
     def find_fei_duns_matches_in_spl(self, spl_id: str) -> List[FEIMatch]:
-        """Find FEI and DUNS numbers - ROBUST approach for any SPL structure"""
+        """Find FEI and DUNS numbers - COMPREHENSIVE approach to find ALL establishments"""
         matches = []
         
         try:
@@ -952,21 +952,62 @@ class NDCToLocationMapper:
             content = response.text
             processed_ids = set()
             
-            # Strategy 1: XML parsing with flexible traversal
-            try:
-                root = ET.fromstring(content)
-                xml_matches = self._find_matches_flexible_xml(root, processed_ids)
-                matches.extend(xml_matches)
-            except ET.XMLSyntaxError:
-                pass
+            # STRATEGY 1: Find ALL ID elements with 7+ digit extensions
+            all_id_pattern = r'<id[^>]*extension="(\d{7,15})"[^>]*>'
+            all_id_matches = re.finditer(all_id_pattern, content, re.IGNORECASE)
             
-            # Strategy 2: Regex-based fallback
-            regex_matches = self._find_matches_flexible_regex(content, processed_ids)
-            matches.extend(regex_matches)
+            st.write("🔍 **All ID elements found in SPL:**")
+            
+            for id_match in all_id_matches:
+                extension = id_match.group(1)
+                clean_extension = re.sub(r'[^\d]', '', extension)
+                
+                # Skip if already processed
+                if clean_extension in processed_ids:
+                    continue
+                
+                # Get context around this ID
+                context_start = max(0, id_match.start() - 300)
+                context_end = min(len(content), id_match.end() + 300)
+                context = content[context_start:context_end]
+                
+                # Extract establishment name from context
+                establishment_name = self._extract_name_from_context_regex(context)
+                
+                st.write(f"- ID: {extension} | Name: {establishment_name}")
+                
+                # Check if this ID exists in our databases
+                fei_match = self._check_database_match(extension, 'FEI_NUMBER')
+                duns_match = self._check_database_match(extension, 'DUNS_NUMBER')
+                
+                if fei_match or duns_match:
+                    match_type = 'FEI_NUMBER' if fei_match else 'DUNS_NUMBER'
+                    
+                    # Calculate line number for location
+                    line_num = content[:id_match.start()].count('\n') + 1
+                    xml_location = f"Line {line_num}"
+                    
+                    match = FEIMatch(
+                        fei_number=clean_extension,
+                        xml_location=xml_location,
+                        match_type=match_type,
+                        establishment_name=establishment_name,
+                        xml_context=context[:200] + "..." if len(context) > 200 else context
+                    )
+                    
+                    matches.append(match)
+                    processed_ids.add(clean_extension)
+                    
+                    st.write(f"  ✅ **FOUND IN DATABASE** as {match_type}")
+                else:
+                    st.write(f"  ❌ Not found in database")
+            
+            st.write(f"\n**Total establishments found in database: {len(matches)}**")
             
             return matches
             
         except Exception as e:
+            st.write(f"Error in find_fei_duns_matches_in_spl: {e}")
             return matches
 
     def _is_within_author_section(self, element) -> bool:
@@ -1316,6 +1357,18 @@ class NDCToLocationMapper:
             return "Unknown"
         except Exception as e:
             return "Unknown"
+
+    # ADD THE NEW METHOD HERE:
+    def _check_database_match(self, extension: str, match_type: str) -> bool:
+        """Check if an extension exists in FEI or DUNS database"""
+        variants = self._generate_all_id_variants(extension)
+        
+        if match_type == 'FEI_NUMBER':
+            return any(variant in self.fei_database for variant in variants)
+        elif match_type == 'DUNS_NUMBER':
+            return any(variant in self.duns_database for variant in variants)
+        
+        return False
 
     def _find_matches_flexible_xml(self, root, processed_ids: set) -> List[FEIMatch]:
         """Flexible XML parsing that works with any SPL structure"""
@@ -2756,6 +2809,13 @@ def main():
         
         with st.spinner(f"Looking up manufacturing locations for {ndc_input}..."):
             try:
+                # ADDED: First, let's see what the SPL contains
+                product_info = st.session_state.mapper.get_ndc_info_comprehensive(ndc_input)
+                if product_info and product_info.spl_id:
+                    st.write(f"**SPL ID:** {product_info.spl_id}")
+                    
+                    # ADDED: Show all establishments found in SPL
+                    matches = st.session_state.mapper.find_fei_duns_matches_in_spl(product_info.spl_id):
                 results_df = st.session_state.mapper.process_single_ndc(ndc_input)
                 
                 if len(results_df) > 0:

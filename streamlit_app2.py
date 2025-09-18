@@ -1212,16 +1212,22 @@ class NDCToLocationMapper:
             'C82401': 'Manufacture', 
             'C25391': 'Analysis',
             'C84731': 'Pack',
-            'C25392': 'Sterilize',
+            'C84732': 'Label',
             'C48482': 'Repack',
             'C73606': 'Relabel',
-            'C84732': 'Label',
+            'C25392': 'Sterilize',
             'C25394': 'API Manufacture',
             'C43359': 'Manufacture'
         }
 
         # Look for performance elements with actDefinition (this is the correct structure for SPL)
         performance_elements = re.findall(r'<performance[^>]*>.*?</performance>', section, re.DOTALL | re.IGNORECASE)
+
+        # ADD DEBUG CODE HERE:
+        if "080129000" in establishment_name or "Genentech" in establishment_name:
+            st.write(f"\n=== DEBUG: {establishment_name} ===")
+            st.write(f"Target NDC: {target_ndc}")
+            st.write(f"Performance elements found: {len(performance_elements)}")
 
         for perf_elem in performance_elements:
             # Extract operation code and displayName from actDefinition
@@ -1232,10 +1238,10 @@ class NDCToLocationMapper:
                 operation_code = operation_code_match.group(1)
                 display_name = operation_code_match.group(2).lower()
                 
-                # ADD THIS DEBUG LINE:
-                if establishment_name == "Regeneron Pharmaceuticals, Inc.":
-                    st.write(f"DEBUG: Found operation code '{operation_code}' with display name '{display_name}'")
-
+                # ADD MORE DEBUG CODE HERE:
+                if "080129000" in establishment_name or "Genentech" in establishment_name:
+                    st.write(f"Operation: {operation_code} = {display_name}")
+                
                 # Check for API Manufacture first (more specific)
                 if operation_code == 'C25394' or 'api' in display_name:
                     operation_found = 'API Manufacture'
@@ -1249,6 +1255,10 @@ class NDCToLocationMapper:
                 # Look for NDC codes in manufacturedMaterialKind
                 ndc_code_pattern = r'<code[^>]*code="([^"]*)"[^>]*codeSystem="2\.16\.840\.1\.113883\.6\.69"'
                 ndc_matches = re.findall(ndc_code_pattern, perf_elem, re.IGNORECASE)
+                
+                # ADD DEBUG FOR NDC MATCHES:
+                if "080129000" in establishment_name or "Genentech" in establishment_name:
+                    st.write(f"NDCs found in this operation: {ndc_matches}")
                 
                 ndc_found_in_operation = False
                 for ndc_code in ndc_matches:
@@ -1266,6 +1276,9 @@ class NDCToLocationMapper:
 
                 # If our target NDC was found in this operation, add it
                 if ndc_found_in_operation and operation_found not in operations:
+                    # ADD DEBUG FOR ADDING OPERATIONS:
+                    if "080129000" in establishment_name or "Genentech" in establishment_name:
+                        st.write(f"ADDING OPERATION: {operation_found}")
                     operations.append(operation_found)
                     quotes.append(f'"Found {operation_found} operation for National Drug Code {target_ndc} in {establishment_name}"')
 

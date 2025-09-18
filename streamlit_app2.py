@@ -179,9 +179,11 @@ class NDCToLocationMapper:
                 # More flexible FEI column matching
                 if ('fei' in col_lower and 'number' in col_lower) or col_lower == 'feinumber':
                     fei_col = col_original
-                # More flexible DUNS column matching
+                # More flexible DUNS column matching - ONLY facility DUNS, not registrant DUNS
                 elif ('duns' in col_lower and 'number' in col_lower) or col_lower == 'dunsnumber':
-                    duns_col = col_original
+                    # Make sure this is NOT the registrant DUNS column
+                    if 'registrant' not in col_lower and 'owner' not in col_lower and 'parent' not in col_lower:
+                        duns_col = col_original
                 # More flexible ADDRESS column matching
                 elif 'address' in col_lower:
                     address_col = col_original
@@ -217,9 +219,9 @@ class NDCToLocationMapper:
                         if firm_name == 'nan' or firm_name == '':
                             firm_name = 'Unknown'
 
-                    # Get BOTH FEI and DUNS from the same row
+                    # Get BOTH FEI and FACILITY DUNS from the same row (NOT registrant DUNS)
                     fei_number = None
-                    duns_number = None
+                    facility_duns_number = None
                     
                     if fei_col and not pd.isna(row[fei_col]):
                         fei_raw = str(row[fei_col]).strip()
@@ -228,15 +230,16 @@ class NDCToLocationMapper:
                             if len(fei_clean) >= 7:
                                 fei_number = fei_raw
 
+                    # CRITICAL FIX: Only use facility DUNS, not registrant DUNS
                     if duns_col and not pd.isna(row[duns_col]):
                         duns_raw = str(row[duns_col]).strip()
                         if duns_raw != 'nan' and duns_raw != '':
                             duns_clean = re.sub(r'[^\d]', '', duns_raw)
                             if len(duns_clean) >= 8:
-                                duns_number = duns_raw
+                                facility_duns_number = duns_raw
 
                     # Only process if we have at least one identifier
-                    if not fei_number and not duns_number:
+                    if not fei_number and not facility_duns_number:
                         continue
 
                     # Create establishment data with BOTH identifiers
@@ -251,8 +254,8 @@ class NDCToLocationMapper:
                         'latitude': address_parts.get('latitude'),
                         'longitude': address_parts.get('longitude'),
                         'search_method': 'spreadsheet_database',
-                        'original_fei': fei_number,      # Store both identifiers
-                        'original_duns': duns_number     # Store both identifiers
+                        'original_fei': fei_number,                    # Store FEI
+                        'original_duns': facility_duns_number          # Store FACILITY DUNS only
                     }
 
                     # Store under FEI variants if FEI exists
@@ -262,6 +265,14 @@ class NDCToLocationMapper:
                             if key:
                                 self.fei_database[key] = establishment_data.copy()
                         fei_count += 1
+
+                    # Store under FACILITY DUNS variants if FACILITY DUNS exists (NOT registrant DUNS)
+                    if facility_duns_number:
+                        duns_variants = self._generate_all_id_variants(facility_duns_number)
+                        for key in duns_variants:
+                            if key:
+                                self.duns_database[key] = establishment_data.copy()
+                        duns_count += 1
 
                     # Store under DUNS variants if DUNS exists
                     if duns_number:

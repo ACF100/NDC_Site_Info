@@ -1472,7 +1472,7 @@ class NDCToLocationMapper:
                     
                     establishments.append(establishment)
         
-        return establishments[:10]
+        return establishments
 
     def get_facility_inspections(self, fei_number: str) -> List[Dict]:
         """Get inspection history - prioritize local database, fallback to API"""

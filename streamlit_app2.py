@@ -938,81 +938,92 @@ class NDCToLocationMapper:
             st.write(f"DEBUG: Error in DUNS lookup: {e}")
             return None
 
-    def find_fei_duns_matches_in_spl(self, spl_id: str) -> List[FEIMatch]:
-        """Find FEI and DUNS numbers in SPL that match the spreadsheet database and return their XML locations"""
-        matches = []
+def find_fei_duns_matches_in_spl(self, spl_id: str) -> List[FEIMatch]:
+    """Find FEI and DUNS numbers in establishment sections only (excludes labeler)"""
+    matches = []
+    
+    try:
+        spl_url = f"{self.dailymed_base_url}/services/v2/spls/{spl_id}.xml"
+        response = self.session.get(spl_url)
+
+        if response.status_code != 200:
+            return matches
+
+        content = response.text
         
         try:
-            spl_url = f"{self.dailymed_base_url}/services/v2/spls/{spl_id}.xml"
-            response = self.session.get(spl_url)
-
-            if response.status_code != 200:
-                return matches
-
-            content = response.text
+            root = ET.fromstring(content)
             
-            # Parse XML to get proper structure
-            try:
-                root = ET.fromstring(content)
-                
-                # Find all ID elements and check their context
-                for elem in root.iter():
-                    if elem.tag.endswith('id') and elem.get('extension'):
-                        extension = elem.get('extension')
-                        root_oid = elem.get('root', '')
+            # Find all assignedOrganization elements (these are establishments)
+            for org in root.iter():
+                if org.tag.endswith('assignedOrganization'):
+                    # Skip if this is within author section (labeler)
+                    if self._is_within_author_section(org):
+                        continue
                         
-                        # Clean the extension (remove non-digits)
-                        clean_extension = re.sub(r'[^\d]', '', extension)
-                        
-                        # Get XML location/context information
-                        xml_context = self._get_element_context(elem, root)
-                        xml_location = self._get_element_xpath(elem, root)
-                        
-                        # Check if this is an FEI number match (try EXPANDED formats)
-                        fei_match_found = False
-                        fei_variants = self._generate_all_id_variants(extension)
-                        
-                        for fei_key in fei_variants:
-                            if fei_key in self.fei_database:
-                                establishment_name = self._extract_establishment_name_from_context(elem)
-                                
-                                match = FEIMatch(
-                                    fei_number=clean_extension,
-                                    xml_location=xml_location,
-                                    match_type='FEI_NUMBER',
-                                    establishment_name=establishment_name,
-                                    xml_context=xml_context
-                                )
-                                matches.append(match)
-                                fei_match_found = True
-                                break
-                        
-                        # Check if this is a DUNS number match (try EXPANDED formats)
-                        if not fei_match_found:
-                            duns_variants = self._generate_all_id_variants(extension)
+                    # Look for ID elements in this establishment
+                    for id_elem in org.iter():
+                        if id_elem.tag.endswith('id') and id_elem.get('extension'):
+                            extension = id_elem.get('extension')
+                            clean_extension = re.sub(r'[^\\d]', '', extension)
                             
-                            for duns_key in duns_variants:
-                                if duns_key in self.duns_database:
-                                    establishment_name = self._extract_establishment_name_from_context(elem)
+                            xml_context = self._get_element_context(id_elem, root)
+                            xml_location = self._get_element_xpath(id_elem, root)
+                            
+                            # Check FEI database first
+                            fei_match_found = False
+                            fei_variants = self._generate_all_id_variants(extension)
+                            
+                            for fei_key in fei_variants:
+                                if fei_key in self.fei_database:
+                                    establishment_name = self._extract_establishment_name_from_context(id_elem)
                                     
                                     match = FEIMatch(
-                                        fei_number=clean_extension,  # Using same field for both FEI and DUNS
+                                        fei_number=clean_extension,
                                         xml_location=xml_location,
-                                        match_type='DUNS_NUMBER',
+                                        match_type='FEI_NUMBER',
                                         establishment_name=establishment_name,
                                         xml_context=xml_context
                                     )
                                     matches.append(match)
+                                    fei_match_found = True
                                     break
                             
-            except ET.XMLSyntaxError as e:
-                # Fallback to regex-based approach
-                matches.extend(self._find_matches_with_regex(content, spl_id))
-                
-        except Exception as e:
-            pass
+                            # Check DUNS database if no FEI match
+                            if not fei_match_found:
+                                duns_variants = self._generate_all_id_variants(extension)
+                                
+                                for duns_key in duns_variants:
+                                    if duns_key in self.duns_database:
+                                        establishment_name = self._extract_establishment_name_from_context(id_elem)
+                                        
+                                        match = FEIMatch(
+                                            fei_number=clean_extension,
+                                            xml_location=xml_location,
+                                            match_type='DUNS_NUMBER',
+                                            establishment_name=establishment_name,
+                                            xml_context=xml_context
+                                        )
+                                        matches.append(match)
+                                        break
+                            
+        except ET.XMLSyntaxError as e:
+            # Fallback to regex-based approach
+            matches.extend(self._find_matches_with_regex_filtered(content, spl_id))
             
-        return matches
+    except Exception as e:
+        pass
+        
+    return matches
+
+    def _is_within_author_section(self, element) -> bool:
+        """Check if element is within author section (labeler context)"""
+        current = element
+        while current is not None:
+            if current.tag.endswith('author'):
+                return True
+            current = current.getparent() if hasattr(current, 'getparent') else None
+        return False
 
     def _get_element_xpath(self, element, root) -> str:
         """Generate XPath-like location for an element"""
@@ -1097,63 +1108,78 @@ class NDCToLocationMapper:
         except Exception as e:
             return "Unknown"
 
-    def _find_matches_with_regex(self, content: str, spl_id: str) -> List[FEIMatch]:
-        """Fallback regex-based matching with location information"""
+    def _find_matches_with_regex_filtered(self, content: str, spl_id: str) -> List[FEIMatch]:
+        """Fallback regex-based matching that excludes author sections"""
         matches = []
         
         try:
-            # Find all ID elements with extension attributes
-            id_pattern = r'<id\s+([^>]*extension="(\d{7,15})"[^>]*)>'
-            id_matches = re.finditer(id_pattern, content, re.IGNORECASE)
+            # Find assignedOrganization sections that are NOT in author sections
+            # Look for assignedOrganization that contains ID elements
+            org_pattern = r'<assignedOrganization[^>]*>.*?</assignedOrganization>'
+            org_matches = re.finditer(org_pattern, content, re.DOTALL | re.IGNORECASE)
             
-            for match in id_matches:
-                full_match = match.group(0)
-                extension = match.group(2)
-                clean_extension = re.sub(r'[^\d]', '', extension)
+            for org_match in org_matches:
+                org_content = org_match.group(0)
                 
-                # Calculate line number for location
-                line_num = content[:match.start()].count('\n') + 1
+                # Skip if this organization is within an author section
+                # Check 500 characters before this match for <author>
+                context_start = max(0, org_match.start() - 500)
+                context_before = content[context_start:org_match.start()]
                 
-                # Get surrounding context (100 chars before and after)
-                start_context = max(0, match.start() - 100)
-                end_context = min(len(content), match.end() + 100)
-                xml_context = content[start_context:end_context].replace('\n', ' ').strip()
+                # Count author tags vs closing author tags to see if we're inside one
+                author_opens = context_before.count('<author')
+                author_closes = context_before.count('</author>')
                 
-                xml_location = f"Line {line_num} (regex-based)"
+                if author_opens > author_closes:
+                    continue  # We're inside an author section, skip
                 
-                # Check for FEI matches (try EXPANDED formats)
-                fei_match_found = False
-                fei_variants = self._generate_all_id_variants(extension)
+                # Find IDs within this organization
+                id_pattern = r'<id\\s+([^>]*extension="(\\d{7,15})"[^>]*)>'
+                id_matches = re.finditer(id_pattern, org_content, re.IGNORECASE)
                 
-                for fei_key in fei_variants:
-                    if fei_key in self.fei_database:
-                        fei_match = FEIMatch(
-                            fei_number=clean_extension,
-                            xml_location=xml_location,
-                            match_type='FEI_NUMBER',
-                            establishment_name=self._extract_name_from_context_regex(xml_context),
-                            xml_context=xml_context[:200] + "..." if len(xml_context) > 200 else xml_context
-                        )
-                        matches.append(fei_match)
-                        fei_match_found = True
-                        break
-                
-                # Check for DUNS matches (try EXPANDED formats)
-                if not fei_match_found:
+                for id_match in id_matches:
+                    extension = id_match.group(2)
+                    clean_extension = re.sub(r'[^\\d]', '', extension)
+                    
+                    # Calculate line number for location
+                    line_num = content[:org_match.start() + id_match.start()].count('\\n') + 1
+                    xml_location = f"Line {line_num} (regex-based)"
+                    
+                    # Get surrounding context
+                    start_context = max(0, id_match.start() - 100)
+                    end_context = min(len(org_content), id_match.end() + 100)
+                    xml_context = org_content[start_context:end_context].replace('\\n', ' ').strip()
+                    
+                    # Check databases
+                    fei_variants = self._generate_all_id_variants(extension)
                     duns_variants = self._generate_all_id_variants(extension)
                     
-                    for duns_key in duns_variants:
-                        if duns_key in self.duns_database:
-                            duns_match = FEIMatch(
+                    # Try FEI first
+                    for fei_key in fei_variants:
+                        if fei_key in self.fei_database:
+                            fei_match = FEIMatch(
                                 fei_number=clean_extension,
                                 xml_location=xml_location,
-                                match_type='DUNS_NUMBER',
+                                match_type='FEI_NUMBER',
                                 establishment_name=self._extract_name_from_context_regex(xml_context),
                                 xml_context=xml_context[:200] + "..." if len(xml_context) > 200 else xml_context
                             )
-                            matches.append(duns_match)
+                            matches.append(fei_match)
                             break
-                    
+                    else:
+                        # Try DUNS if no FEI match
+                        for duns_key in duns_variants:
+                            if duns_key in self.duns_database:
+                                duns_match = FEIMatch(
+                                    fei_number=clean_extension,
+                                    xml_location=xml_location,
+                                    match_type='DUNS_NUMBER',
+                                    establishment_name=self._extract_name_from_context_regex(xml_context),
+                                    xml_context=xml_context[:200] + "..." if len(xml_context) > 200 else xml_context
+                                )
+                                matches.append(duns_match)
+                                break
+                        
         except Exception as e:
             pass
             

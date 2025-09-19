@@ -1987,7 +1987,14 @@ class NDCToLocationMapper:
                                 existing_est['operations'].append(operation_name)
                         else:
                             # Check if this ID is in our database
-                            if self._check_database_match(establishment_id, 'FEI_NUMBER') or self._check_database_match(establishment_id, 'DUNS_NUMBER'):
+                            fei_check = self._check_database_match(establishment_id, 'FEI_NUMBER')
+                            duns_check = self._check_database_match(establishment_id, 'DUNS_NUMBER')
+                        
+                            if fei_check or duns_check:
+                                st.write(f"✅ Database match for {establishment_id} - adding to list")
+                            else:
+                                st.write(f"❌ No database match for {establishment_id}")
+
                                 establishments.append({
                                     'id': establishment_id,
                                     'name': establishment_name,

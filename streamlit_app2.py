@@ -1932,6 +1932,50 @@ class NDCToLocationMapper:
         
         return establishments
 
+    def extract_establishments_with_fei(self, spl_id: str, target_ndc: str) -> Tuple[List[str], List[str], List[Dict]]:
+        """Extract operations, quotes, and detailed establishment info - NDC-SPECIFIC VERSION"""
+        try:
+            spl_url = f"{self.dailymed_base_url}/services/v2/spls/{spl_id}.xml"
+            response = self.session.get(spl_url)
+
+            if response.status_code != 200:
+                return [], [], []
+
+            content = response.text
+            establishments_info = []
+            
+            # Use the NDC-specific approach (method you already have)
+            ndc_establishments = self._extract_establishments_ndc_specific(content, target_ndc)
+            
+            st.write(f"**Found {len(ndc_establishments)} establishments with operations for NDC {target_ndc}**")
+            
+            # Convert to the expected format
+            for est in ndc_establishments:
+                st.write(f"- {est['name']} ({est['id']}): {', '.join(est['operations'])}")
+                
+                # Look up full establishment info from database
+                if self._check_database_match(est['id'], 'FEI_NUMBER'):
+                    establishment_info = self.lookup_fei_establishment(est['id'])
+                    match_type = 'FEI_NUMBER'
+                else:
+                    establishment_info = self.lookup_duns_establishment(est['id'])
+                    match_type = 'DUNS_NUMBER'
+                
+                if establishment_info:
+                    establishment_info['operations'] = est['operations']
+                    establishment_info['quotes'] = [f'Found {op} operation for National Drug Code {target_ndc}' for op in est['operations']]
+                    establishment_info['match_type'] = match_type
+                    establishment_info['xml_location'] = f"ID: {est['id']}"
+                    establishment_info['xml_context'] = f"Establishment: {est['name']}"
+                    
+                    establishments_info.append(establishment_info)
+
+            return [], [], establishments_info
+
+        except Exception as e:
+            st.write(f"Error in extract_establishments_with_fei: {e}")
+            return [], [], []
+
     def get_facility_inspections(self, fei_number: str) -> List[Dict]:
         """Get inspection history - prioritize local database, fallback to API"""
         inspections = []

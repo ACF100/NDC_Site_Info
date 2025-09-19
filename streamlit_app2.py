@@ -1946,11 +1946,27 @@ class NDCToLocationMapper:
                 establishment_name = name_match.group(1).strip() if name_match else "Unknown"
                 
                 # Extract operation from this specific performance element
-                op_match = re.search(r'code="(C\d+)"', ndc_perf['element'])
+                op_match = re.search(r'code="(C\d+)"[^>]*displayName="([^"]*)"', ndc_perf['element'])
                 if op_match:
                     op_code = op_match.group(1)
-                    if op_code in operation_codes:
+                    display_name = op_match.group(2).lower()
+                    
+                    # DEBUG: Show what we found
+                    st.write(f"**DEBUG: Found operation code {op_code} with display name '{display_name}' for establishment {establishment_id}**")
+                    
+                    # Determine the correct operation name
+                    operation_name = None
+                    if op_code == 'C25394':
+                        operation_name = 'API Manufacture'
+                        st.write(f"  → Mapped to API Manufacture (code C25394)")
+                    elif 'api' in display_name and 'manufacture' in display_name:
+                        operation_name = 'API Manufacture'
+                        st.write(f"  → Mapped to API Manufacture (display name contains 'api manufacture')")
+                    elif op_code in operation_codes:
                         operation_name = operation_codes[op_code]
+                        st.write(f"  → Mapped to {operation_name} (from operation_codes)")
+                    else:
+                        st.write(f"  → NOT MAPPED - unknown operation")
                         
                         # Check if we already have this establishment
                         existing_est = None

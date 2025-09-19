@@ -918,24 +918,21 @@ class NDCToLocationMapper:
     def lookup_duns_establishment(self, duns_number: str) -> Optional[Dict]:
         """Look up establishment information using DUNS number from spreadsheet database"""
         try:
-            st.write(f"DEBUG: Looking up DUNS {duns_number}")
+            
             duns_variants = self._generate_all_id_variants(duns_number)
-            st.write(f"DEBUG: DUNS variants: {duns_variants}")
+            
 
             for duns_variant in duns_variants:
                 if duns_variant in self.duns_database:
                     establishment_info = self.duns_database[duns_variant].copy()
-                    st.write(f"DEBUG: Found establishment for DUNS {duns_variant}:")
-                    st.write(f"DEBUG: - Address: {establishment_info.get('address_line_1', 'Unknown')}")
-                    st.write(f"DEBUG: - Original DUNS: {establishment_info.get('original_duns', 'Unknown')}")
-                    st.write(f"DEBUG: - Original FEI: {establishment_info.get('original_fei', 'Unknown')}")
+                    
                     establishment_info['duns_number'] = duns_variant
                     return establishment_info
                     
-            st.write(f"DEBUG: No DUNS match found for {duns_number}")
+            
             return None
         except Exception as e:
-            st.write(f"DEBUG: Error in DUNS lookup: {e}")
+            
             return None
 
     def find_fei_duns_matches_in_spl(self, spl_id: str) -> List[FEIMatch]:
@@ -1885,123 +1882,6 @@ class NDCToLocationMapper:
                 quotes = [q for q in quotes if 'Manufacture operation' not in q or 'API Manufacture operation' in q]
 
         return operations, quotes
-
-    def _extract_establishments_ndc_specific(self, content: str, target_ndc: str) -> List[Dict]:
-        """NDC-SPECIFIC approach: only operations that explicitly mention the target NDC"""
-        establishments = []
-        
-        # Generate all possible NDC variants for matching
-        ndc_variants = self.normalize_ndc_for_matching(target_ndc)
-        
-        # Complete operation mapping
-        operation_codes = {
-            'C25391': 'Analysis', 'C25394': 'API Manufacture', 
-            'C43360': 'Manufacture', 'C82401': 'Manufacture', 'C43359': 'Manufacture',
-            'C84731': 'Pack', 'C84732': 'Label', 'C48482': 'Repack',
-            'C73606': 'Relabel', 'C25392': 'Sterilize'
-        }
-        
-        # STEP 1: Find all performance elements that mention our specific NDC
-        ndc_specific_performances = []
-        ndc_pattern = r'<performance[^>]*>.*?<code[^>]*code="([^"]*)"[^>]*codeSystem="2\.16\.840\.1\.113883\.6\.69".*?</performance>'
-        perf_matches = re.finditer(ndc_pattern, content, re.DOTALL | re.IGNORECASE)
-        
-        for perf_match in perf_matches:
-            perf_element = perf_match.group(0)
-            ndc_in_perf = perf_match.group(1)
-            
-            # Check if this performance element is for our target NDC
-            ndc_variants_found = self.normalize_ndc_for_matching(ndc_in_perf.strip())
-            if any(v in ndc_variants for v in ndc_variants_found):
-                # This performance element is for our NDC!
-                ndc_specific_performances.append({
-                    'element': perf_element,
-                    'position': perf_match.start(),
-                    'ndc': ndc_in_perf
-                })
-        
-        # STEP 2: For each NDC-specific performance, find which establishment it belongs to
-        id_pattern = r'<id[^>]*extension="(\d{7,15})"[^>]*>'
-        id_matches = list(re.finditer(id_pattern, content, re.IGNORECASE))
-        
-        for ndc_perf in ndc_specific_performances:
-            perf_position = ndc_perf['position']
-            
-            # Find the closest establishment ID BEFORE this performance element
-            closest_establishment = None
-            closest_distance = float('inf')
-            
-            for id_match in id_matches:
-                if id_match.end() < perf_position:  # ID must come before performance
-                    distance = perf_position - id_match.end()
-                    if distance < closest_distance:
-                        closest_distance = distance
-                        closest_establishment = {
-                            'id': id_match.group(1),
-                            'position': id_match.start()
-                        }
-            
-            if closest_establishment and closest_distance < 3000:  # Reasonable distance
-                establishment_id = closest_establishment['id']
-                
-                # Get establishment name
-                est_context_start = max(0, closest_establishment['position'] - 200)
-                est_context_end = min(len(content), closest_establishment['position'] + 400)
-                est_context = content[est_context_start:est_context_end]
-                
-                name_match = re.search(r'<name[^>]*>([^<]+)</name>', est_context)
-                establishment_name = name_match.group(1).strip() if name_match else "Unknown"
-                
-                # Extract operation from this specific performance element
-                op_match = re.search(r'code="(C\d+)"[^>]*displayName="([^"]*)"', ndc_perf['element'])
-                if op_match:
-                    op_code = op_match.group(1)
-                    display_name = op_match.group(2).lower()
-                    
-                    # DEBUG: Show what we found
-                    st.write(f"**DEBUG: Found operation code {op_code} with display name '{display_name}' for establishment {establishment_id}**")
-                    
-                    # Determine the correct operation name
-                    operation_name = None
-                    if op_code == 'C25394':
-                        operation_name = 'API Manufacture'
-                        st.write(f"  → Mapped to API Manufacture (code C25394)")
-                    elif 'api' in display_name and 'manufacture' in display_name:
-                        operation_name = 'API Manufacture'
-                        st.write(f"  → Mapped to API Manufacture (display name contains 'api manufacture')")
-                    elif op_code in operation_codes:
-                        operation_name = operation_codes[op_code]
-                        st.write(f"  → Mapped to {operation_name} (from operation_codes)")
-                    else:
-                        st.write(f"  → NOT MAPPED - unknown operation")
-                        
-                        # Check if we already have this establishment
-                        existing_est = None
-                        for est in establishments:
-                            if est['id'] == establishment_id:
-                                existing_est = est
-                                break
-                        
-                        if existing_est:
-                            if operation_name not in existing_est['operations']:
-                                existing_est['operations'].append(operation_name)
-                        else:
-                            # Check if this ID is in our database
-                            fei_check = self._check_database_match(establishment_id, 'FEI_NUMBER')
-                            duns_check = self._check_database_match(establishment_id, 'DUNS_NUMBER')
-                        
-                            if fei_check or duns_check:
-                                st.write(f"✅ Database match for {establishment_id} - adding to list")
-                            else:
-                                st.write(f"❌ No database match for {establishment_id}")
-
-                                establishments.append({
-                                    'id': establishment_id,
-                                    'name': establishment_name,
-                                    'operations': [operation_name]
-                                })
-        
-        return establishments
 
     def get_establishment_info(self, product_info: ProductInfo) -> List[Dict]:
         """Get establishment information for a product with inspection data"""

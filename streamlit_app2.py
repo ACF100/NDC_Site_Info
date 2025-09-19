@@ -1248,7 +1248,7 @@ class NDCToLocationMapper:
 
     def _extract_establishments_ndc_specific(self, content: str, target_ndc: str) -> List[Dict]:
         """NDC-SPECIFIC approach: find ALL operations for each establishment"""
-        establishments = {}  # Use dict to group by establishment ID
+        establishments = []
         
         # Generate all possible NDC variants for matching
         ndc_variants = self.normalize_ndc_for_matching(target_ndc)
@@ -1262,10 +1262,10 @@ class NDCToLocationMapper:
         }
         
         # STEP 1: Find ALL performance elements that mention our specific NDC
+        ndc_specific_performances = []
         ndc_pattern = r'<performance[^>]*>.*?<code[^>]*code="([^"]*)"[^>]*codeSystem="2\.16\.840\.1\.113883\.6\.69".*?</performance>'
         perf_matches = re.finditer(ndc_pattern, content, re.DOTALL | re.IGNORECASE)
         
-        ndc_specific_performances = []
         for perf_match in perf_matches:
             perf_element = perf_match.group(0)
             ndc_in_perf = perf_match.group(1)
@@ -1279,8 +1279,6 @@ class NDCToLocationMapper:
                     'ndc': ndc_in_perf
                 })
         
-        st.write(f"**Found {len(ndc_specific_performances)} performance elements for NDC {target_ndc}**")
-        
         # STEP 2: For each NDC-specific performance, find which establishment it belongs to
         id_pattern = r'<id[^>]*extension="(\d{7,15})"[^>]*>'
         id_matches = list(re.finditer(id_pattern, content, re.IGNORECASE))
@@ -1293,7 +1291,7 @@ class NDCToLocationMapper:
             closest_distance = float('inf')
             
             for id_match in id_matches:
-                if id_match.end() < perf_position:  # ID must come before performance
+                if id_match.end() < perf_position:
                     distance = perf_position - id_match.end()
                     if distance < closest_distance:
                         closest_distance = distance
@@ -1302,7 +1300,7 @@ class NDCToLocationMapper:
                             'position': id_match.start()
                         }
             
-            if closest_establishment and closest_distance < 3000:  # Reasonable distance
+            if closest_establishment and closest_distance < 3000:
                 establishment_id = closest_establishment['id']
                 
                 # Extract operation from this specific performance element
@@ -1311,24 +1309,31 @@ class NDCToLocationMapper:
                     op_code = op_match.group(1)
                     display_name = op_match.group(2).lower()
                     
-                    # Determine the correct operation name
+                    # FIXED: Better API Manufacture detection
                     operation_name = None
-                    if op_code == 'C25394' or 'api' in display_name:
+                    if op_code == 'C25394':
+                        operation_name = 'API Manufacture'
+                    elif 'api' in display_name and 'manufacture' in display_name:
                         operation_name = 'API Manufacture'
                     elif op_code in operation_codes:
                         operation_name = operation_codes[op_code]
                     
                     if operation_name:
                         # Check if this ID is in our database
-                        fei_match = self._check_database_match(establishment_id, 'FEI_NUMBER')
-                        duns_match = self._check_database_match(establishment_id, 'DUNS_NUMBER')
-                        
-                        st.write(f"**Database check for {establishment_id}: FEI={fei_match}, DUNS={duns_match}**")
-                        
-                        if fei_match or duns_match:
+                        if self._check_database_match(establishment_id, 'FEI_NUMBER') or self._check_database_match(establishment_id, 'DUNS_NUMBER'):
                             
-                            # Add to establishments dict (grouping by ID)
-                            if establishment_id not in establishments:
+                            # FIXED: Properly handle multiple operations per establishment
+                            existing_est = None
+                            for est in establishments:
+                                if est['id'] == establishment_id:
+                                    existing_est = est
+                                    break
+                            
+                            if existing_est:
+                                # Add operation if not already present
+                                if operation_name not in existing_est['operations']:
+                                    existing_est['operations'].append(operation_name)
+                            else:
                                 # Get establishment name
                                 est_context_start = max(0, closest_establishment['position'] - 200)
                                 est_context_end = min(len(content), closest_establishment['position'] + 400)
@@ -1337,18 +1342,15 @@ class NDCToLocationMapper:
                                 name_match = re.search(r'<name[^>]*>([^<]+)</name>', est_context)
                                 establishment_name = name_match.group(1).strip() if name_match else "Unknown"
                                 
-                                establishments[establishment_id] = {
+                                # Create new establishment
+                                establishments.append({
                                     'id': establishment_id,
                                     'name': establishment_name,
-                                    'operations': []
-                                }
-                            
-                            # Add operation if not already present
-                            if operation_name not in establishments[establishment_id]['operations']:
-                                establishments[establishment_id]['operations'].append(operation_name)
+                                    'operations': [operation_name]
+                                })
         
-        # Convert dict back to list
-        return list(establishments.values())
+        return establishments
+
 
     def _find_matches_with_regex_filtered(self, content: str, spl_id: str) -> List[FEIMatch]:
         """Fallback regex-based matching that excludes author sections"""

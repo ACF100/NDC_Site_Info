@@ -1320,7 +1320,12 @@ class NDCToLocationMapper:
                     
                     if operation_name:
                         # Check if this ID is in our database
-                        if self._check_database_match(establishment_id, 'FEI_NUMBER') or self._check_database_match(establishment_id, 'DUNS_NUMBER'):
+                        fei_match = self._check_database_match(establishment_id, 'FEI_NUMBER')
+                        duns_match = self._check_database_match(establishment_id, 'DUNS_NUMBER')
+                        
+                        st.write(f"**Database check for {establishment_id}: FEI={fei_match}, DUNS={duns_match}**")
+                        
+                        if fei_match or duns_match:
                             
                             # Add to establishments dict (grouping by ID)
                             if establishment_id not in establishments:

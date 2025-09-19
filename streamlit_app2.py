@@ -1804,98 +1804,99 @@ class NDCToLocationMapper:
 
         return operations, quotes
 
-    def extract_establishments_with_fei(self, spl_id: str, target_ndc: str) -> Tuple[List[str], List[str], List[Dict]]:
-        """Extract operations, quotes, and detailed establishment info with FEI/DUNS numbers for specific NDC"""
-        try:
-            spl_url = f"{self.dailymed_base_url}/services/v2/spls/{spl_id}.xml"
-            response = self.session.get(spl_url)
-
-            if response.status_code != 200:
-                return [], [], []
-
-            content = response.text
-            establishments_info = []
-            processed_numbers = set()  # Track processed FEI/DUNS numbers to avoid duplicates
-
-            # First, find FEI/DUNS matches with their XML locations
-            matches = self.find_fei_duns_matches_in_spl(spl_id)
+    def _extract_establishments_ndc_specific(self, content: str, target_ndc: str) -> List[Dict]:
+        """NDC-SPECIFIC approach: only operations that explicitly mention the target NDC"""
+        establishments = []
+        
+        # Generate all possible NDC variants for matching
+        ndc_variants = self.normalize_ndc_for_matching(target_ndc)
+        
+        # Complete operation mapping
+        operation_codes = {
+            'C25391': 'Analysis', 'C25394': 'API Manufacture', 
+            'C43360': 'Manufacture', 'C82401': 'Manufacture', 'C43359': 'Manufacture',
+            'C84731': 'Pack', 'C84732': 'Label', 'C48482': 'Repack',
+            'C73606': 'Relabel', 'C25392': 'Sterilize'
+        }
+        
+        # STEP 1: Find all performance elements that mention our specific NDC
+        ndc_specific_performances = []
+        ndc_pattern = r'<performance[^>]*>.*?<code[^>]*code="([^"]*)"[^>]*codeSystem="2\.16\.840\.1\.113883\.6\.69".*?</performance>'
+        perf_matches = re.finditer(ndc_pattern, content, re.DOTALL | re.IGNORECASE)
+        
+        for perf_match in perf_matches:
+            perf_element = perf_match.group(0)
+            ndc_in_perf = perf_match.group(1)
             
-            # Get establishment sections for operation extraction
-            establishment_sections = re.findall(r'<assignedEntity[^>]*>.*?</assignedEntity>', content, re.DOTALL | re.IGNORECASE)
+            # Check if this performance element is for our target NDC
+            ndc_variants_found = self.normalize_ndc_for_matching(ndc_in_perf.strip())
+            if any(v in ndc_variants for v in ndc_variants_found):
+                # This performance element is for our NDC!
+                ndc_specific_performances.append({
+                    'element': perf_element,
+                    'position': perf_match.start(),
+                    'ndc': ndc_in_perf
+                })
+        
+        # STEP 2: For each NDC-specific performance, find which establishment it belongs to
+        id_pattern = r'<id[^>]*extension="(\d{7,15})"[^>]*>'
+        id_matches = list(re.finditer(id_pattern, content, re.IGNORECASE))
+        
+        for ndc_perf in ndc_specific_performances:
+            perf_position = ndc_perf['position']
             
-            for match in matches:
-                # Skip if we've already processed this number
-                if match.fei_number in processed_numbers:
-                    continue
+            # Find the closest establishment ID BEFORE this performance element
+            closest_establishment = None
+            closest_distance = float('inf')
+            
+            for id_match in id_matches:
+                if id_match.end() < perf_position:  # ID must come before performance
+                    distance = perf_position - id_match.end()
+                    if distance < closest_distance:
+                        closest_distance = distance
+                        closest_establishment = {
+                            'id': id_match.group(1),
+                            'position': id_match.start()
+                        }
+            
+            if closest_establishment and closest_distance < 3000:  # Reasonable distance
+                establishment_id = closest_establishment['id']
                 
-                processed_numbers.add(match.fei_number)
+                # Get establishment name
+                est_context_start = max(0, closest_establishment['position'] - 200)
+                est_context_end = min(len(content), closest_establishment['position'] + 400)
+                est_context = content[est_context_start:est_context_end]
                 
-                # Look up establishment info based on match type
-                if match.match_type == 'FEI_NUMBER':
-                    establishment_info = self.lookup_fei_establishment(match.fei_number)
-                else:  # DUNS_NUMBER
-                    establishment_info = self.lookup_duns_establishment(match.fei_number)
+                name_match = re.search(r'<name[^>]*>([^<]+)</name>', est_context)
+                establishment_name = name_match.group(1).strip() if name_match else "Unknown"
                 
-                if establishment_info:
-                    # Find the establishment section that contains our matched number and extract operations
-                    establishment_operations = []
-                    establishment_quotes = []
-                    establishment_included = False
-                    
-                    # Look for this FEI/DUNS in establishment sections to get operations
-                    for section in establishment_sections:
-                        # Check if this section contains our matched number
-                        if match.fei_number in section:
-                            # Extract establishment name from section
-                            name_match = re.search(r'<name[^>]*>([^<]+)</name>', section)
-                            section_establishment_name = name_match.group(1) if name_match else establishment_info.get('establishment_name', 'Unknown')
-                            
-                            # Extract NDC-specific operations for this establishment
-                            ops, quotes = self.extract_ndc_specific_operations(section, target_ndc, section_establishment_name)
-                            
-                            # MODIFIED LOGIC: Include establishment if:
-                            # 1. We found NDC-specific operations, OR
-                            # 2. No NDC-specific operations found but establishment has business operations (less strict fallback)
-                            if ops:
-                                # Found NDC-specific operations
-                                establishment_operations.extend(ops)
-                                establishment_quotes.extend(quotes)
-                                establishment_included = True
-                            else:
-                                # Fallback: Check if establishment has any business operations at all
-                                all_business_ops = re.findall(r'<businessOperation[^>]*>.*?</businessOperation>', section, re.DOTALL | re.IGNORECASE)
-                                if all_business_ops:
-                                    # Extract general operations (not NDC-specific)
-                                    general_ops, general_quotes = self.extract_general_operations(section, section_establishment_name)
-                                    if general_ops:
-                                        establishment_operations.extend(general_ops)
-                                        establishment_quotes.extend([f"General operation (not National Drug Code-specific): {q}" for q in general_quotes])
-                                        establishment_included = True
-                            
-                            # Only process the FIRST matching section to avoid duplicates
-                            break
-                    
-                    # Add establishment if we found operations (either NDC-specific or general)
-                    if establishment_included:
-                        # Add match location information
-                        establishment_info['xml_location'] = match.xml_location
-                        establishment_info['match_type'] = match.match_type
-                        establishment_info['xml_context'] = match.xml_context
+                # Extract operation from this specific performance element
+                op_match = re.search(r'code="(C\d+)"', ndc_perf['element'])
+                if op_match:
+                    op_code = op_match.group(1)
+                    if op_code in operation_codes:
+                        operation_name = operation_codes[op_code]
                         
-                        # Remove duplicates while preserving order
-                        establishment_operations = list(dict.fromkeys(establishment_operations))
-                        establishment_quotes = list(dict.fromkeys(establishment_quotes))
+                        # Check if we already have this establishment
+                        existing_est = None
+                        for est in establishments:
+                            if est['id'] == establishment_id:
+                                existing_est = est
+                                break
                         
-                        establishment_info['operations'] = establishment_operations
-                        establishment_info['quotes'] = establishment_quotes
-                        
-                        establishments_info.append(establishment_info)
-
-            # Return empty lists for document-level operations since we now have establishment-specific ones
-            return [], [], establishments_info
-
-        except Exception as e:
-            return [], [], []
+                        if existing_est:
+                            if operation_name not in existing_est['operations']:
+                                existing_est['operations'].append(operation_name)
+                        else:
+                            # Check if this ID is in our database
+                            if self._check_database_match(establishment_id, 'FEI_NUMBER') or self._check_database_match(establishment_id, 'DUNS_NUMBER'):
+                                establishments.append({
+                                    'id': establishment_id,
+                                    'name': establishment_name,
+                                    'operations': [operation_name]
+                                })
+        
+        return establishments
 
     def get_establishment_info(self, product_info: ProductInfo) -> List[Dict]:
         """Get establishment information for a product with inspection data"""

@@ -1244,7 +1244,7 @@ class NDCToLocationMapper:
         return None
 
     def _extract_establishments_ndc_specific(self, content: str, target_ndc: str) -> List[Dict]:
-        """NDC-SPECIFIC approach: search until next establishment ID - WITH DEBUG"""
+        """NDC-SPECIFIC approach: FIXED regex patterns"""
         establishments = []
         
         # Generate all possible NDC variants for matching
@@ -1259,9 +1259,10 @@ class NDCToLocationMapper:
             'C73606': 'Relabel', 'C25392': 'Sterilize'
         }
         
-        # STEP 1: Find ALL performance elements that mention our specific NDC
+        # STEP 1: Find ALL performance elements that mention our specific NDC - FIXED PATTERN
         ndc_specific_performances = []
-        ndc_pattern = r'<[^:]*:?performance[^>]*>.*?<[^:]*:?code[^>]*code="([^"]*)"[^>]*codeSystem="2\.16\.840\.1\.113883\.6\.69".*?</[^:]*:?performance>'
+        # SIMPLER pattern that should catch more elements
+        ndc_pattern = r'<performance[^>]*>.*?<code[^>]*code="([^"]*)"[^>]*codeSystem="2\.16\.840\.1\.113883\.6\.69".*?</performance>'
         perf_matches = re.finditer(ndc_pattern, content, re.DOTALL | re.IGNORECASE)
         
         st.write(f"**DEBUG: Searching for performance elements...**")
@@ -1276,22 +1277,25 @@ class NDCToLocationMapper:
             ndc_variants_found = self.normalize_ndc_for_matching(ndc_in_perf.strip())
             
             if any(v in ndc_variants for v in ndc_variants_found):
-                st.write(f"  ✅ MATCH! NDC {ndc_in_perf} matches target {target_ndc}")
+                st.write(f"  ✅ MATCH! Adding to list")
                 ndc_specific_performances.append({
                     'element': perf_element,
                     'position': perf_match.start(),
                     'ndc': ndc_in_perf
                 })
             else:
-                st.write(f"  ❌ No match: {ndc_in_perf} vs {target_ndc}")
+                st.write(f"  ❌ No match")
         
         st.write(f"**DEBUG: Found {len(ndc_specific_performances)} performance elements for target NDC**")
         
-        # STEP 2: Find ALL establishment IDs and their positions
-        id_pattern = r'<[^:]*:?id[^>]*extension="(\d{7,15})"[^>]*>'
+        # STEP 2: Find ALL establishment IDs - FIXED PATTERN
+        # SIMPLER pattern that should catch more IDs
+        id_pattern = r'<id[^>]*extension="(\d{7,15})"[^>]*>'
         id_matches = list(re.finditer(id_pattern, content, re.IGNORECASE))
         
         st.write(f"**DEBUG: Found {len(id_matches)} establishment IDs in XML**")
+        for id_match in id_matches:
+            st.write(f"  - ID: {id_match.group(1)} at position {id_match.start()}")
         
         # STEP 3: For each NDC-specific performance, find which establishment it belongs to
         for i, ndc_perf in enumerate(ndc_specific_performances):
@@ -1303,88 +1307,93 @@ class NDCToLocationMapper:
             owning_establishment = None
             
             # Find the last establishment ID before this performance element
+            candidates = []
             for id_match in id_matches:
                 if id_match.end() < perf_position:
-                    # Check if there's another establishment ID between this one and the performance
-                    next_id_after_this = None
-                    for next_id_match in id_matches:
-                        if next_id_match.start() > id_match.end() and next_id_match.start() < perf_position:
-                            next_id_after_this = next_id_match
-                            break
-                    
-                    # If no establishment ID between this one and the performance, this is the owner
-                    if not next_id_after_this:
-                        owning_establishment = {
-                            'id': id_match.group(1),
-                            'position': id_match.start()
-                        }
-                        st.write(f"  → Belongs to establishment {id_match.group(1)}")
-                        break
+                    candidates.append({
+                        'id': id_match.group(1),
+                        'position': id_match.start(),
+                        'end_position': id_match.end()
+                    })
             
-            if owning_establishment:
-                establishment_id = owning_establishment['id']
+            if candidates:
+                # Sort by position (closest to performance element)
+                candidates.sort(key=lambda x: x['end_position'], reverse=True)
+                closest_candidate = candidates[0]
                 
-                # Extract operation from this specific performance element
-                op_pattern = r'<[^:]*:?code[^>]*code="(C\d+)"[^>]*displayName="([^"]*)"'
-                op_match = re.search(op_pattern, ndc_perf['element'])
-                if op_match:
-                    op_code = op_match.group(1)
-                    display_name = op_match.group(2).lower()
+                # Check if there's another establishment ID between this one and the performance
+                has_intervening_id = False
+                for other_id in id_matches:
+                    if (other_id.start() > closest_candidate['end_position'] and 
+                        other_id.start() < perf_position):
+                        has_intervening_id = True
+                        st.write(f"  → Found intervening ID {other_id.group(1)} - skipping")
+                        break
+                
+                if not has_intervening_id:
+                    owning_establishment = closest_candidate
+                    st.write(f"  → Belongs to establishment {closest_candidate['id']}")
+            
+            if not owning_establishment:
+                st.write(f"  → No owning establishment found")
+                continue
+            
+            # Continue with operation extraction...
+            establishment_id = owning_establishment['id']
+            
+            # Extract operation from this specific performance element
+            op_pattern = r'<code[^>]*code="(C\d+)"[^>]*displayName="([^"]*)"'
+            op_match = re.search(op_pattern, ndc_perf['element'])
+            if op_match:
+                op_code = op_match.group(1)
+                display_name = op_match.group(2).lower()
+                
+                st.write(f"  → Operation: {op_code} = {display_name}")
+                
+                # Determine the correct operation name
+                operation_name = None
+                if op_code == 'C25394' or ('api' in display_name and 'manufacture' in display_name):
+                    operation_name = 'API Manufacture'
+                elif op_code in operation_codes:
+                    operation_name = operation_codes[op_code]
+                
+                if operation_name:
+                    st.write(f"  → Mapped to: {operation_name}")
                     
-                    st.write(f"  → Operation: {op_code} = {display_name}")
+                    # Check if this ID is in our database
+                    db_check = self._check_database_match(establishment_id, 'FEI_NUMBER') or self._check_database_match(establishment_id, 'DUNS_NUMBER')
+                    st.write(f"  → Database check: {db_check}")
                     
-                    # Determine the correct operation name
-                    operation_name = None
-                    if op_code == 'C25394' or ('api' in display_name and 'manufacture' in display_name):
-                        operation_name = 'API Manufacture'
-                    elif op_code in operation_codes:
-                        operation_name = operation_codes[op_code]
-                    
-                    if operation_name:
-                        st.write(f"  → Mapped to: {operation_name}")
+                    if db_check:
+                        # Add to establishments list
+                        existing_est = None
+                        for est in establishments:
+                            if est['id'] == establishment_id:
+                                existing_est = est
+                                break
                         
-                        # Check if this ID is in our database
-                        db_check = self._check_database_match(establishment_id, 'FEI_NUMBER') or self._check_database_match(establishment_id, 'DUNS_NUMBER')
-                        st.write(f"  → Database check: {db_check}")
-                        
-                        if db_check:
-                            # Check if we already have this establishment
-                            existing_est = None
-                            for est in establishments:
-                                if est['id'] == establishment_id:
-                                    existing_est = est
-                                    break
+                        if existing_est:
+                            if operation_name not in existing_est['operations']:
+                                existing_est['operations'].append(operation_name)
+                                st.write(f"  → Added {operation_name} to existing establishment")
+                        else:
+                            # Get establishment name
+                            est_context_start = max(0, owning_establishment['position'] - 200)
+                            est_context_end = min(len(content), owning_establishment['position'] + 400)
+                            est_context = content[est_context_start:est_context_end]
                             
-                            if existing_est:
-                                if operation_name not in existing_est['operations']:
-                                    existing_est['operations'].append(operation_name)
-                                    st.write(f"  → Added {operation_name} to existing establishment")
-                            else:
-                                # Get establishment name
-                                est_context_start = max(0, owning_establishment['position'] - 200)
-                                est_context_end = min(len(content), owning_establishment['position'] + 400)
-                                est_context = content[est_context_start:est_context_end]
-                                
-                                name_match = re.search(r'<[^:]*:?name[^>]*>([^<]+)</[^:]*:?name>', est_context)
-                                establishment_name = name_match.group(1).strip() if name_match else "Unknown"
-                                
-                                # Create new establishment
-                                establishments.append({
-                                    'id': establishment_id,
-                                    'name': establishment_name,
-                                    'operations': [operation_name]
-                                })
-                                st.write(f"  → Created new establishment: {establishment_name}")
-                    else:
-                        st.write(f"  → Operation {op_code} not mapped")
-                else:
-                    st.write(f"  → No operation code found in performance element")
-            else:
-                st.write(f"  → No owning establishment found for performance at position {perf_position}")
+                            name_match = re.search(r'<name[^>]*>([^<]+)</name>', est_context)
+                            establishment_name = name_match.group(1).strip() if name_match else "Unknown"
+                            
+                            establishments.append({
+                                'id': establishment_id,
+                                'name': establishment_name,
+                                'operations': [operation_name]
+                            })
+                            st.write(f"  → Created new establishment: {establishment_name}")
         
         st.write(f"**DEBUG: Final result: {len(establishments)} establishments**")
         return establishments
-
 
     def _find_matches_with_regex_filtered(self, content: str, spl_id: str) -> List[FEIMatch]:
         """Fallback regex-based matching that excludes author sections"""

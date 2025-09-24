@@ -1244,8 +1244,8 @@ class NDCToLocationMapper:
         return None
 
     def _extract_establishments_ndc_specific(self, content: str, target_ndc: str) -> List[Dict]:
-        """NDC-SPECIFIC approach: find ALL operations for each establishment"""
-        establishments = []
+        """NDC-SPECIFIC approach using XML hierarchy instead of distance"""
+        establishments = {}
         
         # Generate all possible NDC variants for matching
         ndc_variants = self.normalize_ndc_for_matching(target_ndc)
@@ -1258,95 +1258,70 @@ class NDCToLocationMapper:
             'C73606': 'Relabel', 'C25392': 'Sterilize'
         }
         
-        # STEP 1: Find ALL performance elements that mention our specific NDC
-        ndc_specific_performances = []
-        ndc_pattern = r'<performance[^>]*>.*?<code[^>]*code="([^"]*)"[^>]*codeSystem="2\.16\.840\.1\.113883\.6\.69".*?</performance>'
-        perf_matches = re.finditer(ndc_pattern, content, re.DOTALL | re.IGNORECASE)
+        # FIXED: Find assignedOrganization sections and process each one completely
+        # Handle namespaces (ns0:assignedOrganization or assignedOrganization)
+        org_pattern = r'<[^:]*:?assignedOrganization[^>]*>.*?</[^:]*:?assignedOrganization>'
+        org_matches = re.finditer(org_pattern, content, re.DOTALL | re.IGNORECASE)
         
-        for perf_match in perf_matches:
-            perf_element = perf_match.group(0)
-            ndc_in_perf = perf_match.group(1)
+        for org_match in org_matches:
+            org_section = org_match.group(0)
             
-            # Check if this performance element is for our target NDC
-            ndc_variants_found = self.normalize_ndc_for_matching(ndc_in_perf.strip())
-            if any(v in ndc_variants for v in ndc_variants_found):
-                ndc_specific_performances.append({
-                    'element': perf_element,
-                    'position': perf_match.start(),
-                    'ndc': ndc_in_perf
-                })
-        
-        # STEP 2: For each NDC-specific performance, find which establishment it belongs to
-        id_pattern = r'<id[^>]*extension="(\d{7,15})"[^>]*>'
-        id_matches = list(re.finditer(id_pattern, content, re.IGNORECASE))
-        
-        for ndc_perf in ndc_specific_performances:
-            perf_position = ndc_perf['position']
-            
-            # Find the closest establishment ID BEFORE this performance element
-            closest_establishment = None
-            closest_distance = float('inf')
-            
-            for id_match in id_matches:
-                if id_match.end() < perf_position:
-                    distance = perf_position - id_match.end()
-                    if distance < closest_distance:
-                        closest_distance = distance
-                        closest_establishment = {
-                            'id': id_match.group(1),
-                            'position': id_match.start()
-                        }
-            
-            if closest_establishment and closest_distance < 3000:
-                establishment_id = closest_establishment['id']
+            # Extract establishment ID from this organization
+            id_match = re.search(r'<[^:]*:?id[^>]*extension="(\d{7,15})"', org_section)
+            if not id_match:
+                continue
                 
-                # Extract operation from this specific performance element
-                op_match = re.search(r'code="(C\d+)"[^>]*displayName="([^"]*)"', ndc_perf['element'])
-                if op_match:
-                    op_code = op_match.group(1)
-                    display_name = op_match.group(2).lower()
-                    
-                    # FIXED: Better API Manufacture detection
-                    operation_name = None
-                    if op_code == 'C25394':
-                        operation_name = 'API Manufacture'
-                    elif 'api' in display_name and 'manufacture' in display_name:
-                        operation_name = 'API Manufacture'
-                    elif op_code in operation_codes:
-                        operation_name = operation_codes[op_code]
-                    
-                    if operation_name:
-                        # Check if this ID is in our database
-                        if self._check_database_match(establishment_id, 'FEI_NUMBER') or self._check_database_match(establishment_id, 'DUNS_NUMBER'):
-                            
-                            # FIXED: Properly handle multiple operations per establishment
-                            existing_est = None
-                            for est in establishments:
-                                if est['id'] == establishment_id:
-                                    existing_est = est
-                                    break
-                            
-                            if existing_est:
-                                # Add operation if not already present
-                                if operation_name not in existing_est['operations']:
-                                    existing_est['operations'].append(operation_name)
-                            else:
-                                # Get establishment name
-                                est_context_start = max(0, closest_establishment['position'] - 200)
-                                est_context_end = min(len(content), closest_establishment['position'] + 400)
-                                est_context = content[est_context_start:est_context_end]
-                                
-                                name_match = re.search(r'<name[^>]*>([^<]+)</name>', est_context)
-                                establishment_name = name_match.group(1).strip() if name_match else "Unknown"
-                                
-                                # Create new establishment
-                                establishments.append({
-                                    'id': establishment_id,
-                                    'name': establishment_name,
-                                    'operations': [operation_name]
-                                })
+            establishment_id = id_match.group(1)
+            
+            # Extract establishment name
+            name_match = re.search(r'<[^:]*:?name[^>]*>([^<]+)</[^:]*:?name>', org_section)
+            establishment_name = name_match.group(1).strip() if name_match else "Unknown"
+            
+            # Find ALL performance elements within THIS organization section
+            perf_pattern = r'<[^:]*:?performance[^>]*>.*?</[^:]*:?performance>'
+            perf_elements = re.findall(perf_pattern, org_section, re.DOTALL | re.IGNORECASE)
+            
+            operations = []
+            for perf_elem in perf_elements:
+                # Check if this performance element mentions our target NDC
+                ndc_pattern = r'<[^:]*:?code[^>]*code="([^"]*)"[^>]*codeSystem="2\.16\.840\.1\.113883\.6\.69"'
+                ndc_matches = re.findall(ndc_pattern, perf_elem, re.IGNORECASE)
+                
+                ndc_found = False
+                for ndc_code in ndc_matches:
+                    ndc_variants_found = self.normalize_ndc_for_matching(ndc_code.strip())
+                    if any(v in ndc_variants for v in ndc_variants_found):
+                        ndc_found = True
+                        break
+                
+                if ndc_found:
+                    # Extract operation from this performance element
+                    op_pattern = r'<[^:]*:?code[^>]*code="(C\d+)"[^>]*displayName="([^"]*)"'
+                    op_match = re.search(op_pattern, perf_elem)
+                    if op_match:
+                        op_code = op_match.group(1)
+                        display_name = op_match.group(2).lower()
+                        
+                        # Determine operation name
+                        operation_name = None
+                        if op_code == 'C25394' or ('api' in display_name and 'manufacture' in display_name):
+                            operation_name = 'API Manufacture'
+                        elif op_code in operation_codes:
+                            operation_name = operation_codes[op_code]
+                        
+                        if operation_name and operation_name not in operations:
+                            operations.append(operation_name)
+            
+            # Add establishment if it has operations and is in database
+            if operations:
+                if self._check_database_match(establishment_id, 'FEI_NUMBER') or self._check_database_match(establishment_id, 'DUNS_NUMBER'):
+                    establishments[establishment_id] = {
+                        'id': establishment_id,
+                        'name': establishment_name,
+                        'operations': operations
+                    }
         
-        return establishments
+        return list(establishments.values())
 
 
     def _find_matches_with_regex_filtered(self, content: str, spl_id: str) -> List[FEIMatch]:

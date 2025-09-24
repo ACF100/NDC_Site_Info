@@ -2907,10 +2907,13 @@ def main():
 
                                 # Show inspection information if available
                                 if row['fei_number']:
-                                    inspections = st.session_state.mapper.get_facility_inspections(row['fei_number'])
-                                    if inspections:
-                                        inspection_summary = st.session_state.mapper.get_inspection_summary(inspections)
-                                        st.write(f"**🔍 Latest Inspection:** {inspection_summary['status']}")
+                                    try:
+                                        inspections = st.session_state.mapper.get_facility_inspections_from_database(row['fei_number'])
+                                        if inspections:
+                                            inspection_summary = st.session_state.mapper.get_inspection_summary(inspections)
+                                            st.write(f"**🔍 Latest Inspection:** {inspection_summary['status']}")
+                                    except:
+                                        pass  # Skip inspection lookup if it fails
                                 
                                 # Full address in address section
                                 full_address = generate_full_address(row)

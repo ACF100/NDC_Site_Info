@@ -1244,7 +1244,7 @@ class NDCToLocationMapper:
         return None
 
     def _extract_establishments_ndc_specific(self, content: str, target_ndc: str) -> List[Dict]:
-        """NDC-SPECIFIC approach using XML hierarchy instead of distance"""
+        """NDC-SPECIFIC approach using XML hierarchy - handles both representedOrganization and assignedOrganization"""
         establishments = {}
         
         # Generate all possible NDC variants for matching
@@ -1258,12 +1258,19 @@ class NDCToLocationMapper:
             'C73606': 'Relabel', 'C25392': 'Sterilize'
         }
         
-        # FIXED: Find assignedOrganization sections and process each one completely
-        # Handle namespaces (ns0:assignedOrganization or assignedOrganization)
-        org_pattern = r'<[^:]*:?assignedOrganization[^>]*>.*?</[^:]*:?assignedOrganization>'
-        org_matches = re.finditer(org_pattern, content, re.DOTALL | re.IGNORECASE)
+        # FIXED: Look for BOTH assignedOrganization AND representedOrganization
+        # Pattern 1: assignedOrganization (manufacturing establishments)
+        assigned_pattern = r'<[^:]*:?assignedOrganization[^>]*>.*?</[^:]*:?assignedOrganization>'
+        assigned_matches = re.finditer(assigned_pattern, content, re.DOTALL | re.IGNORECASE)
         
-        for org_match in org_matches:
+        # Pattern 2: representedOrganization (main labelers who also manufacture)
+        represented_pattern = r'<[^:]*:?representedOrganization[^>]*>.*?</[^:]*:?representedOrganization>'
+        represented_matches = re.finditer(represented_pattern, content, re.DOTALL | re.IGNORECASE)
+        
+        # Process both types of organizations
+        all_org_matches = list(assigned_matches) + list(represented_matches)
+        
+        for org_match in all_org_matches:
             org_section = org_match.group(0)
             
             # Extract establishment ID from this organization
@@ -1272,6 +1279,10 @@ class NDCToLocationMapper:
                 continue
                 
             establishment_id = id_match.group(1)
+            
+            # Skip if already processed (avoid duplicates)
+            if establishment_id in establishments:
+                continue
             
             # Extract establishment name
             name_match = re.search(r'<[^:]*:?name[^>]*>([^<]+)</[^:]*:?name>', org_section)

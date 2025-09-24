@@ -1244,7 +1244,7 @@ class NDCToLocationMapper:
         return None
 
     def _extract_establishments_ndc_specific(self, content: str, target_ndc: str) -> List[Dict]:
-        """NDC-SPECIFIC approach: find ALL operations for each establishment - DISTANCE BASED BUT IMPROVED"""
+        """NDC-SPECIFIC approach: find ALL operations for each establishment - NO DISTANCE LIMIT"""
         establishments = []
         
         # Generate all possible NDC variants for matching
@@ -1297,8 +1297,8 @@ class NDCToLocationMapper:
                             'position': id_match.start()
                         }
             
-            # FIXED: Increase distance limit for complex SPLs
-            if closest_establishment and closest_distance < 10000:  # Increased from 3000 to 10000
+            # FIXED: NO DISTANCE LIMIT - just take the closest one
+            if closest_establishment:
                 establishment_id = closest_establishment['id']
                 
                 # Extract operation from this specific performance element

@@ -1244,11 +1244,12 @@ class NDCToLocationMapper:
         return None
 
     def _extract_establishments_ndc_specific(self, content: str, target_ndc: str) -> List[Dict]:
-        """NDC-SPECIFIC approach: find ALL operations for each establishment - NO DISTANCE LIMIT"""
+        """NDC-SPECIFIC approach: search until next establishment ID - WITH DEBUG"""
         establishments = []
         
         # Generate all possible NDC variants for matching
         ndc_variants = self.normalize_ndc_for_matching(target_ndc)
+        st.write(f"**DEBUG: Target NDC variants: {ndc_variants[:5]}...**")
         
         # Complete operation mapping
         operation_codes = {
@@ -1263,43 +1264,65 @@ class NDCToLocationMapper:
         ndc_pattern = r'<[^:]*:?performance[^>]*>.*?<[^:]*:?code[^>]*code="([^"]*)"[^>]*codeSystem="2\.16\.840\.1\.113883\.6\.69".*?</[^:]*:?performance>'
         perf_matches = re.finditer(ndc_pattern, content, re.DOTALL | re.IGNORECASE)
         
+        st.write(f"**DEBUG: Searching for performance elements...**")
+        
         for perf_match in perf_matches:
             perf_element = perf_match.group(0)
             ndc_in_perf = perf_match.group(1)
             
+            st.write(f"**DEBUG: Found performance with NDC: {ndc_in_perf}**")
+            
             # Check if this performance element is for our target NDC
             ndc_variants_found = self.normalize_ndc_for_matching(ndc_in_perf.strip())
+            
             if any(v in ndc_variants for v in ndc_variants_found):
+                st.write(f"  ✅ MATCH! NDC {ndc_in_perf} matches target {target_ndc}")
                 ndc_specific_performances.append({
                     'element': perf_element,
                     'position': perf_match.start(),
                     'ndc': ndc_in_perf
                 })
+            else:
+                st.write(f"  ❌ No match: {ndc_in_perf} vs {target_ndc}")
         
-        # STEP 2: For each NDC-specific performance, find which establishment it belongs to
+        st.write(f"**DEBUG: Found {len(ndc_specific_performances)} performance elements for target NDC**")
+        
+        # STEP 2: Find ALL establishment IDs and their positions
         id_pattern = r'<[^:]*:?id[^>]*extension="(\d{7,15})"[^>]*>'
         id_matches = list(re.finditer(id_pattern, content, re.IGNORECASE))
         
-        for ndc_perf in ndc_specific_performances:
+        st.write(f"**DEBUG: Found {len(id_matches)} establishment IDs in XML**")
+        
+        # STEP 3: For each NDC-specific performance, find which establishment it belongs to
+        for i, ndc_perf in enumerate(ndc_specific_performances):
             perf_position = ndc_perf['position']
             
-            # Find the closest establishment ID BEFORE this performance element
-            closest_establishment = None
-            closest_distance = float('inf')
+            st.write(f"**DEBUG: Processing performance {i+1} at position {perf_position}**")
             
+            # Find the establishment ID that "owns" this performance element
+            owning_establishment = None
+            
+            # Find the last establishment ID before this performance element
             for id_match in id_matches:
                 if id_match.end() < perf_position:
-                    distance = perf_position - id_match.end()
-                    if distance < closest_distance:
-                        closest_distance = distance
-                        closest_establishment = {
+                    # Check if there's another establishment ID between this one and the performance
+                    next_id_after_this = None
+                    for next_id_match in id_matches:
+                        if next_id_match.start() > id_match.end() and next_id_match.start() < perf_position:
+                            next_id_after_this = next_id_match
+                            break
+                    
+                    # If no establishment ID between this one and the performance, this is the owner
+                    if not next_id_after_this:
+                        owning_establishment = {
                             'id': id_match.group(1),
                             'position': id_match.start()
                         }
+                        st.write(f"  → Belongs to establishment {id_match.group(1)}")
+                        break
             
-            # FIXED: NO DISTANCE LIMIT - just take the closest one
-            if closest_establishment:
-                establishment_id = closest_establishment['id']
+            if owning_establishment:
+                establishment_id = owning_establishment['id']
                 
                 # Extract operation from this specific performance element
                 op_pattern = r'<[^:]*:?code[^>]*code="(C\d+)"[^>]*displayName="([^"]*)"'
@@ -1307,6 +1330,8 @@ class NDCToLocationMapper:
                 if op_match:
                     op_code = op_match.group(1)
                     display_name = op_match.group(2).lower()
+                    
+                    st.write(f"  → Operation: {op_code} = {display_name}")
                     
                     # Determine the correct operation name
                     operation_name = None
@@ -1316,9 +1341,13 @@ class NDCToLocationMapper:
                         operation_name = operation_codes[op_code]
                     
                     if operation_name:
+                        st.write(f"  → Mapped to: {operation_name}")
+                        
                         # Check if this ID is in our database
-                        if self._check_database_match(establishment_id, 'FEI_NUMBER') or self._check_database_match(establishment_id, 'DUNS_NUMBER'):
-                            
+                        db_check = self._check_database_match(establishment_id, 'FEI_NUMBER') or self._check_database_match(establishment_id, 'DUNS_NUMBER')
+                        st.write(f"  → Database check: {db_check}")
+                        
+                        if db_check:
                             # Check if we already have this establishment
                             existing_est = None
                             for est in establishments:
@@ -1327,13 +1356,13 @@ class NDCToLocationMapper:
                                     break
                             
                             if existing_est:
-                                # Add operation if not already present
                                 if operation_name not in existing_est['operations']:
                                     existing_est['operations'].append(operation_name)
+                                    st.write(f"  → Added {operation_name} to existing establishment")
                             else:
                                 # Get establishment name
-                                est_context_start = max(0, closest_establishment['position'] - 200)
-                                est_context_end = min(len(content), closest_establishment['position'] + 400)
+                                est_context_start = max(0, owning_establishment['position'] - 200)
+                                est_context_end = min(len(content), owning_establishment['position'] + 400)
                                 est_context = content[est_context_start:est_context_end]
                                 
                                 name_match = re.search(r'<[^:]*:?name[^>]*>([^<]+)</[^:]*:?name>', est_context)
@@ -1345,7 +1374,15 @@ class NDCToLocationMapper:
                                     'name': establishment_name,
                                     'operations': [operation_name]
                                 })
+                                st.write(f"  → Created new establishment: {establishment_name}")
+                    else:
+                        st.write(f"  → Operation {op_code} not mapped")
+                else:
+                    st.write(f"  → No operation code found in performance element")
+            else:
+                st.write(f"  → No owning establishment found for performance at position {perf_position}")
         
+        st.write(f"**DEBUG: Final result: {len(establishments)} establishments**")
         return establishments
 
 

@@ -953,7 +953,6 @@ class NDCToLocationMapper:
             all_id_pattern = r'<id[^>]*extension="(\d{7,15})"[^>]*>'
             all_id_matches = re.finditer(all_id_pattern, content, re.IGNORECASE)
             
-            st.write("🔍 **All ID elements found in SPL:**")
             
             for id_match in all_id_matches:
                 extension = id_match.group(1)
@@ -971,7 +970,6 @@ class NDCToLocationMapper:
                 # Extract establishment name from context
                 establishment_name = self._extract_name_from_context_regex(context)
                 
-                st.write(f"- ID: {extension} | Name: {establishment_name}")
                 
                 # Check if this ID exists in our databases
                 fei_match = self._check_database_match(extension, 'FEI_NUMBER')
@@ -995,16 +993,12 @@ class NDCToLocationMapper:
                     matches.append(match)
                     processed_ids.add(clean_extension)
                     
-                    st.write(f"  ✅ **FOUND IN DATABASE** as {match_type}")
-                else:
-                    st.write(f"  ❌ Not found in database")
+
             
-            st.write(f"\n**Total establishments found in database: {len(matches)}**")
             
             return matches
             
         except Exception as e:
-            st.write(f"Error in find_fei_duns_matches_in_spl: {e}")
             return matches
 
     def _is_within_author_section(self, element) -> bool:
@@ -1244,12 +1238,11 @@ class NDCToLocationMapper:
         return None
 
     def _extract_establishments_ndc_specific(self, content: str, target_ndc: str) -> List[Dict]:
-        """NDC-SPECIFIC approach: FIXED regex patterns"""
+        """NDC-SPECIFIC approach: search until next establishment ID"""
         establishments = []
         
         # Generate all possible NDC variants for matching
         ndc_variants = self.normalize_ndc_for_matching(target_ndc)
-        st.write(f"**DEBUG: Target NDC variants: {ndc_variants[:5]}...**")
         
         # Complete operation mapping
         operation_codes = {
@@ -1259,54 +1252,36 @@ class NDCToLocationMapper:
             'C73606': 'Relabel', 'C25392': 'Sterilize'
         }
         
-        # STEP 1: Find ALL performance elements that mention our specific NDC - FIXED PATTERN
+        # STEP 1: Find ALL performance elements that mention our specific NDC
         ndc_specific_performances = []
-        # SIMPLER pattern that should catch more elements
         ndc_pattern = r'<performance[^>]*>.*?<code[^>]*code="([^"]*)"[^>]*codeSystem="2\.16\.840\.1\.113883\.6\.69".*?</performance>'
         perf_matches = re.finditer(ndc_pattern, content, re.DOTALL | re.IGNORECASE)
-        
-        st.write(f"**DEBUG: Searching for performance elements...**")
         
         for perf_match in perf_matches:
             perf_element = perf_match.group(0)
             ndc_in_perf = perf_match.group(1)
             
-            st.write(f"**DEBUG: Found performance with NDC: {ndc_in_perf}**")
-            
             # Check if this performance element is for our target NDC
             ndc_variants_found = self.normalize_ndc_for_matching(ndc_in_perf.strip())
-            
             if any(v in ndc_variants for v in ndc_variants_found):
-                st.write(f"  ✅ MATCH! Adding to list")
                 ndc_specific_performances.append({
                     'element': perf_element,
                     'position': perf_match.start(),
                     'ndc': ndc_in_perf
                 })
-            else:
-                st.write(f"  ❌ No match")
         
-        st.write(f"**DEBUG: Found {len(ndc_specific_performances)} performance elements for target NDC**")
-        
-        # STEP 2: Find ALL establishment IDs - FIXED PATTERN
-        # SIMPLER pattern that should catch more IDs
+        # STEP 2: Find ALL establishment IDs
         id_pattern = r'<id[^>]*extension="(\d{7,15})"[^>]*>'
         id_matches = list(re.finditer(id_pattern, content, re.IGNORECASE))
         
-        st.write(f"**DEBUG: Found {len(id_matches)} establishment IDs in XML**")
-        for id_match in id_matches:
-            st.write(f"  - ID: {id_match.group(1)} at position {id_match.start()}")
-        
         # STEP 3: For each NDC-specific performance, find which establishment it belongs to
-        for i, ndc_perf in enumerate(ndc_specific_performances):
+        for ndc_perf in ndc_specific_performances:
             perf_position = ndc_perf['position']
-            
-            st.write(f"**DEBUG: Processing performance {i+1} at position {perf_position}**")
             
             # Find the establishment ID that "owns" this performance element
             owning_establishment = None
             
-            # Find the last establishment ID before this performance element
+            # Find candidates (IDs before this performance)
             candidates = []
             for id_match in id_matches:
                 if id_match.end() < perf_position:
@@ -1327,72 +1302,57 @@ class NDCToLocationMapper:
                     if (other_id.start() > closest_candidate['end_position'] and 
                         other_id.start() < perf_position):
                         has_intervening_id = True
-                        st.write(f"  → Found intervening ID {other_id.group(1)} - skipping")
                         break
                 
                 if not has_intervening_id:
                     owning_establishment = closest_candidate
-                    st.write(f"  → Belongs to establishment {closest_candidate['id']}")
             
-            if not owning_establishment:
-                st.write(f"  → No owning establishment found")
-                continue
-            
-            # Continue with operation extraction...
-            establishment_id = owning_establishment['id']
-            
-            # Extract operation from this specific performance element
-            op_pattern = r'<code[^>]*code="(C\d+)"[^>]*displayName="([^"]*)"'
-            op_match = re.search(op_pattern, ndc_perf['element'])
-            if op_match:
-                op_code = op_match.group(1)
-                display_name = op_match.group(2).lower()
+            if owning_establishment:
+                establishment_id = owning_establishment['id']
                 
-                st.write(f"  → Operation: {op_code} = {display_name}")
-                
-                # Determine the correct operation name
-                operation_name = None
-                if op_code == 'C25394' or ('api' in display_name and 'manufacture' in display_name):
-                    operation_name = 'API Manufacture'
-                elif op_code in operation_codes:
-                    operation_name = operation_codes[op_code]
-                
-                if operation_name:
-                    st.write(f"  → Mapped to: {operation_name}")
+                # Extract operation from this specific performance element
+                op_pattern = r'<code[^>]*code="(C\d+)"[^>]*displayName="([^"]*)"'
+                op_match = re.search(op_pattern, ndc_perf['element'])
+                if op_match:
+                    op_code = op_match.group(1)
+                    display_name = op_match.group(2).lower()
                     
-                    # Check if this ID is in our database
-                    db_check = self._check_database_match(establishment_id, 'FEI_NUMBER') or self._check_database_match(establishment_id, 'DUNS_NUMBER')
-                    st.write(f"  → Database check: {db_check}")
+                    # Determine the correct operation name
+                    operation_name = None
+                    if op_code == 'C25394' or ('api' in display_name and 'manufacture' in display_name):
+                        operation_name = 'API Manufacture'
+                    elif op_code in operation_codes:
+                        operation_name = operation_codes[op_code]
                     
-                    if db_check:
-                        # Add to establishments list
-                        existing_est = None
-                        for est in establishments:
-                            if est['id'] == establishment_id:
-                                existing_est = est
-                                break
-                        
-                        if existing_est:
-                            if operation_name not in existing_est['operations']:
-                                existing_est['operations'].append(operation_name)
-                                st.write(f"  → Added {operation_name} to existing establishment")
-                        else:
-                            # Get establishment name
-                            est_context_start = max(0, owning_establishment['position'] - 200)
-                            est_context_end = min(len(content), owning_establishment['position'] + 400)
-                            est_context = content[est_context_start:est_context_end]
+                    if operation_name:
+                        # Check if this ID is in our database
+                        if self._check_database_match(establishment_id, 'FEI_NUMBER') or self._check_database_match(establishment_id, 'DUNS_NUMBER'):
                             
-                            name_match = re.search(r'<name[^>]*>([^<]+)</name>', est_context)
-                            establishment_name = name_match.group(1).strip() if name_match else "Unknown"
+                            # Check if we already have this establishment
+                            existing_est = None
+                            for est in establishments:
+                                if est['id'] == establishment_id:
+                                    existing_est = est
+                                    break
                             
-                            establishments.append({
-                                'id': establishment_id,
-                                'name': establishment_name,
-                                'operations': [operation_name]
-                            })
-                            st.write(f"  → Created new establishment: {establishment_name}")
+                            if existing_est:
+                                if operation_name not in existing_est['operations']:
+                                    existing_est['operations'].append(operation_name)
+                            else:
+                                # Get establishment name
+                                est_context_start = max(0, owning_establishment['position'] - 200)
+                                est_context_end = min(len(content), owning_establishment['position'] + 400)
+                                est_context = content[est_context_start:est_context_end]
+                                
+                                name_match = re.search(r'<name[^>]*>([^<]+)</name>', est_context)
+                                establishment_name = name_match.group(1).strip() if name_match else "Unknown"
+                                
+                                establishments.append({
+                                    'id': establishment_id,
+                                    'name': establishment_name,
+                                    'operations': [operation_name]
+                                })
         
-        st.write(f"**DEBUG: Final result: {len(establishments)} establishments**")
         return establishments
 
     def _find_matches_with_regex_filtered(self, content: str, spl_id: str) -> List[FEIMatch]:
@@ -1978,12 +1938,10 @@ class NDCToLocationMapper:
             # Use the NDC-specific approach (method you already have)
             ndc_establishments = self._extract_establishments_ndc_specific(content, target_ndc)
             
-            st.write(f"**Found {len(ndc_establishments)} establishments with operations for NDC {target_ndc}**")
             
             # Convert to the expected format
             for est in ndc_establishments:
-                st.write(f"- {est['name']} ({est['id']}): {', '.join(est['operations'])}")
-                
+                                
                 # Look up full establishment info from database
                 if self._check_database_match(est['id'], 'FEI_NUMBER'):
                     establishment_info = self.lookup_fei_establishment(est['id'])
@@ -2004,7 +1962,6 @@ class NDCToLocationMapper:
             return [], [], establishments_info
 
         except Exception as e:
-            st.write(f"Error in extract_establishments_with_fei: {e}")
             return [], [], []
 
     def get_facility_inspections(self, fei_number: str) -> List[Dict]:
@@ -2881,17 +2838,9 @@ def main():
     
     # Search functionality
     if search_btn and ndc_input:
-        st.write("🔍 **Debug Output:**")
         
         with st.spinner(f"Looking up manufacturing locations for {ndc_input}..."):
             try:
-                # ADDED: First, let's see what the SPL contains
-                product_info = st.session_state.mapper.get_ndc_info_comprehensive(ndc_input)
-                if product_info and product_info.spl_id:
-                    st.write(f"**SPL ID:** {product_info.spl_id}")
-                    
-                    # ADDED: Show all establishments found in SPL
-                    matches = st.session_state.mapper.find_fei_duns_matches_in_spl(product_info.spl_id)
                 results_df = st.session_state.mapper.process_single_ndc(ndc_input)
                 
                 if len(results_df) > 0:

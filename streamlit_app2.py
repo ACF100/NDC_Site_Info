@@ -183,10 +183,8 @@ class NDCToLocationMapper:
                 elif ('duns' in col_lower and 'number' in col_lower) or col_lower == 'dunsnumber':
                     # CRITICAL: Exclude any column with registrant/owner/parent in the name
                     if not any(word in col_lower for word in ['registrant', 'owner', 'parent', 'company']):
-                        duns_col = col_original
-                        print(f"DEBUG: Selected DUNS column: {col_original}")
+                        duns_col = col_original 
                     else:
-                        print(f"DEBUG: Skipping registrant/owner DUNS column: {col_original}")
                 # More flexible ADDRESS column matching
                 elif 'address' in col_lower:
                     address_col = col_original
@@ -194,8 +192,7 @@ class NDCToLocationMapper:
                 elif ('firm' in col_lower and 'name' in col_lower) or col_lower == 'firmname':
                     firm_name_col = col_original
 
-            print(f"DEBUG: Final columns - FEI: {fei_col}, DUNS: {duns_col}, Address: {address_col}, Firm: {firm_name_col}")
-
+  
             if not fei_col and not duns_col:
                 return
 
@@ -1759,19 +1756,6 @@ class NDCToLocationMapper:
             # Fallback to original method if structure is different
             performance_elements = re.findall(r'<performance[^>]*>.*?</performance>', section, re.DOTALL | re.IGNORECASE)
 
-        # ADD THIS NEW DEBUG CODE HERE:
-        if "080129000" in establishment_name or "Genentech" in establishment_name:
-            st.write(f"\n=== XML SECTION BEING PROCESSED ===")
-            st.write(f"Establishment: {establishment_name}")
-            st.write(f"Section content (first 1000 chars): {section[:1000]}")
-            st.write(f"=== END XML SECTION ===")
-
-        # ADD DEBUG CODE HERE:
-        if "080129000" in establishment_name or "Genentech" in establishment_name:
-            st.write(f"\n=== DEBUG: {establishment_name} ===")
-            st.write(f"Target NDC: {target_ndc}")
-            st.write(f"Performance elements found: {len(performance_elements)}")
-
         for perf_elem in performance_elements:
             # Extract operation code and displayName from actDefinition
             operation_found = None
@@ -1781,10 +1765,7 @@ class NDCToLocationMapper:
                 operation_code = operation_code_match.group(1)
                 display_name = operation_code_match.group(2).lower()
                 
-                # ADD MORE DEBUG CODE HERE:
-                if "080129000" in establishment_name or "Genentech" in establishment_name:
-                    st.write(f"Operation: {operation_code} = {display_name}")
-                
+               
                 # Check for API Manufacture first (more specific)
                 if operation_code == 'C25394' or 'api' in display_name:
                     operation_found = 'API Manufacture'
@@ -1799,9 +1780,6 @@ class NDCToLocationMapper:
                 ndc_code_pattern = r'<code[^>]*code="([^"]*)"[^>]*codeSystem="2\.16\.840\.1\.113883\.6\.69"'
                 ndc_matches = re.findall(ndc_code_pattern, perf_elem, re.IGNORECASE)
                 
-                # ADD DEBUG FOR NDC MATCHES:
-                if "080129000" in establishment_name or "Genentech" in establishment_name:
-                    st.write(f"NDCs found in this operation: {ndc_matches}")
                 
                 ndc_found_in_operation = False
                 for ndc_code in ndc_matches:
@@ -1819,9 +1797,6 @@ class NDCToLocationMapper:
 
                 # If our target NDC was found in this operation, add it
                 if ndc_found_in_operation and operation_found not in operations:
-                    # ADD DEBUG FOR ADDING OPERATIONS:
-                    if "080129000" in establishment_name or "Genentech" in establishment_name:
-                        st.write(f"ADDING OPERATION: {operation_found}")
                     operations.append(operation_found)
                     quotes.append(f'"Found {operation_found} operation for National Drug Code {target_ndc} in {establishment_name}"')
 

@@ -2959,35 +2959,42 @@ def main():
     
     # Sidebar info
     st.sidebar.title("About This Tool")
-    st.sidebar.caption("""
-    🔍 **Look up your medication** in public FDA databases  
-    📄 **Analyze official documents** for manufacturing info  
-    🏭 **Find manufacturing facilities** worldwide  
-    🌍 **Show locations** on maps  
+    st.sidebar.markdown("""
+    <div style="font-size: 0.8em;">
+    
+    🔍 <b>Look up your medication</b> in public FDA databases  
+    📄 <b>Analyze official documents</b> for manufacturing info  
+    🏭 <b>Find manufacturing facilities</b> worldwide  
+    🌍 <b>Show locations</b> on maps  
     
     ~30% of medications have manufacturing location info in public data.
-    """)
+    
+    </div>
+    """, unsafe_allow_html=True)
     
     st.sidebar.markdown("---")
     st.sidebar.markdown("**⚠️ Important Disclaimer:**")
-    st.sidebar.caption("""
-    For informational purposes only, may not be complete or current. 
-    Not for medical decisions, always consult a healthcare provider. 
-    Reflects the views of the author and should not be construed to represent FDA's views or policies.
-    """)
+    st.sidebar.markdown("""
+    <div style="font-size: 0.8em;">
     
-    st.sidebar.markdown("---")
-    st.sidebar.caption("**📊 Data Sources to Verify Results:**")
-    st.sidebar.caption("""
-    - 🏥 [DailyMed](https://dailymed.nlm.nih.gov/) - Product labels
-    - 🏭 [FDA Registry](https://www.fda.gov/drugs/drug-approvals-and-databases/drug-registration-and-listing-system) - Establishments
-    - 🔍 [FDA Inspections](https://www.fda.gov/inspections-compliance-enforcement-and-criminal-investigations/inspection-classification-database) - Compliance
-    """)
+    For informational purposes only, may not be complete or current.<br>
+    Not for medical decisions, always consult a healthcare provider.<br>
+    Reflects the views of the author and should not be construed to represent FDA's views or policies.
+    
+    <b>📊 Data Sources to Verify Results:</b><br>
+    • 🏥 <a href="https://dailymed.nlm.nih.gov/" target="_blank">DailyMed</a> - Product labels<br>
+    • 🏭 <a href="https://www.fda.gov/drugs/drug-approvals-and-databases/drug-registration-and-listing-system" target="_blank">FDA Registry</a> - Establishments<br>
+    • 🔍 <a href="https://www.fda.gov/inspections-compliance-enforcement-and-criminal-investigations/inspection-classification-database" target="_blank">FDA Inspections</a> - Compliance
+    
+    </div>
+    """, unsafe_allow_html=True)
 
     if 'mapper' in st.session_state and st.session_state.mapper.database_loaded:
-        st.sidebar.markdown("---")
-        if st.session_state.mapper.database_date:
-            st.sidebar.caption(f"**Database Date:** {st.session_state.mapper.database_date}")        
+        st.sidebar.markdown("""
+        <div style="font-size: 0.8em;">
+        <b>Database Status:</b>
+        </div>
+        """, unsafe_allow_html=True)
         st.sidebar.success("✅ Loaded and Ready")
 
 if __name__ == "__main__":

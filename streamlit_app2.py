@@ -2976,13 +2976,13 @@ def main():
     st.sidebar.markdown("""
     <small>
     st.sidebar.markdown("**⚠️ Important Disclaimer:**")
-    st.sidebar.markdown("""
     For informational purposes only. 
     Not for medical decisions. 
     Consult healthcare providers for medication questions. 
     Reflects the views of the author and should not be construed to represent FDA’s views or policies.
     </small>  
     """, unsafe_allow_html=True)  
+
     st.sidebar.markdown("""
     <small>
     

@@ -184,7 +184,7 @@ class NDCToLocationMapper:
                     # CRITICAL: Exclude any column with registrant/owner/parent in the name
                     if not any(word in col_lower for word in ['registrant', 'owner', 'parent', 'company']):
                         duns_col = col_original 
-                    else:
+
                 # More flexible ADDRESS column matching
                 elif 'address' in col_lower:
                     address_col = col_original

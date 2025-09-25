@@ -1246,10 +1246,18 @@ class NDCToLocationMapper:
         
         # Complete operation mapping
         operation_codes = {
-            'C25391': 'Analysis', 'C25394': 'API Manufacture', 
-            'C43360': 'Manufacture', 'C82401': 'Manufacture', 'C43359': 'Manufacture',
-            'C84731': 'Pack', 'C84732': 'Label', 'C48482': 'Repack',
-            'C73606': 'Relabel', 'C25392': 'Sterilize'
+            'C25391': 'Analysis',
+            'C25394': 'API Manufacture',  # Legacy code
+            'C82401': 'API Manufacture',  # Current official code
+            'C43359': 'Manufacture', 
+            'C43360': 'Manufacture',
+            'C84731': 'Pack', 
+            'C84732': 'Label', 
+            'C48482': 'Repack',
+            'C73606': 'Repack',   # Official code (was incorrectly mapped to Relabel)
+            'C73607': 'Relabel',  # Official code (was missing)
+            'C25392': 'Sterilize', # Legacy code
+            'C84382': 'Sterilize'  # Current official code
         }
         
         # STEP 1: Find ALL performance elements that mention our specific NDC
@@ -1633,10 +1641,18 @@ class NDCToLocationMapper:
         
         # Operation code mappings
         operation_codes = {
-            'C43360': 'Manufacture', 'C82401': 'Manufacture', 'C25391': 'Analysis',
-            'C84731': 'Pack', 'C84732': 'Label', 'C48482': 'Repack',
-            'C73606': 'Relabel', 'C25392': 'Sterilize', 'C25394': 'API Manufacture',
-            'C43359': 'Manufacture'
+            'C25391': 'Analysis',
+            'C25394': 'API Manufacture',  # Legacy code
+            'C82401': 'API Manufacture',  # Current official code
+            'C43359': 'Manufacture',
+            'C43360': 'Manufacture',
+            'C84731': 'Pack',
+            'C84732': 'Label',
+            'C48482': 'Repack',
+            'C73606': 'Repack',   # Official code (was incorrectly mapped to Relabel)
+            'C73607': 'Relabel',  # Official code (was missing)
+            'C25392': 'Sterilize', # Legacy code
+            'C84382': 'Sterilize'  # Current official code
         }
         
         # Strategy 1: Find operations near this establishment ID
@@ -1715,16 +1731,18 @@ class NDCToLocationMapper:
 
         # Updated operation mappings
         operation_codes = {
-            'C43360': 'Manufacture',
-            'C82401': 'Manufacture', 
             'C25391': 'Analysis',
+            'C25394': 'API Manufacture',  # Legacy code
+            'C82401': 'API Manufacture',  # Current official code
+            'C43359': 'Manufacture',
+            'C43360': 'Manufacture',
             'C84731': 'Pack',
             'C84732': 'Label',
             'C48482': 'Repack',
-            'C73606': 'Relabel',
-            'C25392': 'Sterilize',
-            'C25394': 'API Manufacture',
-            'C43359': 'Manufacture'
+            'C73606': 'Repack',   # Official code (was incorrectly mapped to Relabel)
+            'C73607': 'Relabel',  # Official code (was missing)
+            'C25392': 'Sterilize', # Legacy code
+            'C84382': 'Sterilize'  # Current official code
         }
 
         # Look for performance elements with actDefinition (this is the correct structure for SPL)
@@ -1828,16 +1846,18 @@ class NDCToLocationMapper:
 
         # Updated operation mappings
         operation_codes = {
-            'C43360': 'Manufacture',
-            'C82401': 'Manufacture', 
             'C25391': 'Analysis',
+            'C25394': 'API Manufacture',  # Legacy code
+            'C82401': 'API Manufacture',  # Current official code
+            'C43359': 'Manufacture',
+            'C43360': 'Manufacture',
             'C84731': 'Pack',
-            'C25392': 'Sterilize',
-            'C48482': 'Repack',
-            'C73606': 'Relabel',
             'C84732': 'Label',
-            'C25394': 'API Manufacture',
-            'C43359': 'Manufacture'
+            'C48482': 'Repack',
+            'C73606': 'Repack',   # Official code (was incorrectly mapped to Relabel)
+            'C73607': 'Relabel',  # Official code (was missing)
+            'C25392': 'Sterilize', # Legacy code
+            'C84382': 'Sterilize'  # Current official code
         }
 
         operation_names = {
@@ -2894,19 +2914,19 @@ def main():
                             **🔢 Business Identifier (DUNS):** 9-digit identifier assigned by Dun & Bradstreet (D&B) to businesses
                             
                             **⚙️ Manufacturing Operations:**
-                            - **Manufacture:** Final drug product manufacturing
-                            - **API Manufacture:** Active pharmaceutical ingredient production  
-                            - **Analysis:** Quality control testing
-                            - **Pack:** Packaging operations
-                            - **Label:** Labeling operations
-                            - **Repack:** Repackaging operations - transferring to different containers
-                            - **Relabel:** Relabeling operations - applying new or updated labels  
-                            - **Sterilize:** Sterilization operations - ensuring products are sterile and safe
+                            - **Analysis:** Performing analytical tests, assays, and lab work
+                            - **API Manufacture:** Manufacturing of the active pharmaceutical ingredient (bulk drug substance)
+                            - **Manufacture:** Manufacturing of the finished dosage form
+                            - **Pack:** Packaging of the product (final packaging, putting into containers)
+                            - **Label:** Labeling operations (applying labels, printing, artwork)
+                            - **Repack:** Repackaging - changing the packaging of a product
+                            - **Relabel:** Applying new labeling to an existing product
+                            - **Sterilize:** Sterilization operations (terminal sterilization, aseptic processes)
                             
                             **🔍 Inspection Classifications:**
                             - **No Action Indicated (NAI):** Facility is compliant with no actions needed
-                            - **Voluntary Action Indicated (VAI):** Facility is compliant with minor issues that need voluntary corrections
-                            - **Official Action Indicated (OAI):** Significant compliance issues requiring action. A past OAI is not an indicator of current compliance issues.
+                            - **Voluntary Action Indicated (VAI):** Facility is compliant with minor issues that the facility should voluntarily correct
+                            - **Official Action Indicated (OAI):** Significant compliance issues requiring regulatory action. A past OAI does not indicate current facility status.
                             """)
                         
                         # Manufacturing establishments - header without address

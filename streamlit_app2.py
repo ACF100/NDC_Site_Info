@@ -2977,13 +2977,9 @@ def main():
     <small>
     
     **⚠️ Important Disclaimer:**
-    This tool is for **informational and educational purposes only**. 
-    
-    - Information may not be complete or current
-    - Not intended for medical decision-making, consult a pharmacist or doctor
-    - Manufacturing locations may change over time
-    - Reflects the views of the author and should not be construed to represent FDA's views or policies.
-    
+    For informational purposes only, may not be complete or current 
+    Not for medical decisions, always consult a healthcare provider 
+    Reflects the views of the author and should not be construed to represent FDA's views or policies    
     **📊 Data Sources to Verify Results:**
     - 🏥 [DailyMed](https://dailymed.nlm.nih.gov/) - Product labels
     - 🏭 [FDA Registry](https://www.fda.gov/drugs/drug-approvals-and-databases/drug-registration-and-listing-system) - Establishments
@@ -2997,12 +2993,12 @@ def main():
         if st.session_state.mapper.database_date:
             st.sidebar.markdown(f"""
             <small>
-            **Database Date:** {st.session_state.mapper.database_date}
+            Database Date: {st.session_state.mapper.database_date}
             </small>
             """, unsafe_allow_html=True)       
         st.sidebar.markdown("""
         <small>
-        **Database Status:**
+        Database Status:
         </small>
         """, unsafe_allow_html=True)
         st.sidebar.success("✅ Loaded and Ready")

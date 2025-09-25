@@ -2906,7 +2906,8 @@ def main():
                         st.success(f"✅ Found {len(results_df)} manufacturing establishment{'s' if len(results_df) != 1 else ''}")
                         
                         # Product, Labeler, and NDC with same text size
-                        st.subheader(f"**Product:** {first_row['product_name']}")
+                        clean_product = clean_product_name(first_row['product_name'])
+                        st.subheader(f"**Product:** {clean_product}")
                         st.subheader(f"**Labeler:** {first_row['labeler_name']}")
                         st.subheader(f"**National Drug Code:** {first_row['ndc']}")
                         

@@ -2878,7 +2878,8 @@ def main():
                         # Manufacturing establishments header with count first and countries
                         country_counts = results_df['country'].value_counts()
                         country_summary = ", ".join([f"{country}: {count}" for country, count in country_counts.items()])
-                        st.subheader(f"🏭 {len(results_df)} Manufacturing Establishment{'s' if len(results_df) != 1 else ''} in Public Data - {country_summary}")
+                        st.subheader(f"🏭 {len(results_df)} Manufacturing Establishment{'s' if len(results_df) != 1 else ''} in Public Data - {country_summary}",
+                                     help="Manufacturing establishments voluntarily provided in the label. May not represent all facilities involved in manufacturing this product.")
 
                         # Add map right after the header
                         map_fig = create_simple_world_map(results_df)
@@ -2894,11 +2895,9 @@ def main():
                                 with col1:
                                     # Show establishment name in content, not header
                                     if row['fei_number']:
-                                        st.write(f"**🔢 FDA Establishment Identifier:** {row['fei_number']}",
-                                                 help="Unique number assigned by FDA to each manufacturing facility for tracking and inspection purposes")
+                                        st.write(f"**🔢 FDA Establishment Identifier:** {row['fei_number']}")
                                     if row['duns_number']:
-                                        st.write(f"**🔢 Business Identifier:** {row['duns_number']}",
-                                        help="Unique 9-digit identifier assigned by Dun & Bradstreet to business entities")
+                                        st.write(f"**🔢 Business Identifier:** {row['duns_number']}")
                                     if row['firm_name'] and row['firm_name'] != 'Unknown':
                                         st.write(f"**🏢 Company Name:** {row['firm_name']}")
                                 

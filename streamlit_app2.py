@@ -2885,6 +2885,26 @@ def main():
                         map_fig = create_simple_world_map(results_df)
                         if map_fig:
                             st.plotly_chart(map_fig, use_container_width=True)
+
+                        # ADD THIS HELP SECTION HERE:
+                        with st.expander("ℹ️ Understanding the Results", expanded=False):
+                            st.markdown("""
+                            **🔢 FDA Establishment Identifier (FEI):** Unique number assigned to each manufacturing facility for tracking and inspection purposes
+                            
+                            **🔢 Business Identifier (DUNS):** 9-digit business identifier used in government databases
+                            
+                            **⚙️ Manufacturing Operations:**
+                            - **Manufacture:** Final drug product manufacturing
+                            - **API Manufacture:** Active pharmaceutical ingredient production  
+                            - **Analysis:** Quality control testing
+                            - **Pack:** Packaging operations
+                            - **Label:** Labeling operations
+                            
+                            **🔍 Inspection Classifications:**
+                            - **NAI (No Action Indicated):** Facility is compliant
+                            - **VAI (Voluntary Action Indicated):** Minor issues, voluntary correction
+                            - **OAI (Official Action Indicated):** Significant compliance issues requiring action
+                            """)
                         
                         # Manufacturing establishments - header without address
                         for idx, row in results_df.iterrows():

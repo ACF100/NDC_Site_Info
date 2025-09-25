@@ -2872,7 +2872,8 @@ def main():
                         
                         if first_row['spl_id']:
                             spl_url = f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={first_row['spl_id']}"
-                            st.markdown(f"📄 **Structured Product Label:** [View on DailyMed]({spl_url})")
+                            st.markdown(f"📄 **Structured Product Label:** [View on DailyMed]({spl_url})",
+                                        help="Official FDA-approved product labeling that may contain manufacturing information")
                         
                         # Manufacturing establishments header with count first and countries
                         country_counts = results_df['country'].value_counts()

@@ -276,13 +276,6 @@ class NDCToLocationMapper:
                                 self.duns_database[key] = establishment_data.copy()
                         duns_count += 1
 
-                    # Store under DUNS variants if DUNS exists
-                    if duns_number:
-                        duns_variants = self._generate_all_id_variants(duns_number)
-                        for key in duns_variants:
-                            if key:
-                                self.duns_database[key] = establishment_data.copy()
-                        duns_count += 1
 
                 except Exception as e:
                     continue

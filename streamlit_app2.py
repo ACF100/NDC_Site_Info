@@ -2975,16 +2975,14 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.markdown("""
     <small>
-    st.sidebar.markdown("**⚠️ Important Disclaimer:**")
-    For informational purposes only. 
-    Not for medical decisions. 
-    Consult healthcare providers for medication questions. 
-    Reflects the views of the author and should not be construed to represent FDA’s views or policies.
-    </small>  
-    """, unsafe_allow_html=True)  
-
-    st.sidebar.markdown("""
-    <small>
+    
+    **⚠️ Important Disclaimer:**
+    This tool is for **informational and educational purposes only**. 
+    
+    - Information may not be complete or current
+    - Not intended for medical decision-making, consult a pharmacist or doctor
+    - Manufacturing locations may change over time
+    - Reflects the views of the author and should not be construed to represent FDA's views or policies.
     
     **📊 Data Sources to Verify Results:**
     - 🏥 [DailyMed](https://dailymed.nlm.nih.gov/) - Product labels

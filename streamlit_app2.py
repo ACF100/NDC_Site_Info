@@ -2465,6 +2465,17 @@ class NDCToLocationMapper:
         
         return formatted
 
+def clean_product_name(product_name: str) -> str:
+    """Remove bracketed labeler information from product name"""
+    if not product_name:
+        return product_name
+    
+    # Remove text in brackets at the end: [LABELER NAME]
+    cleaned = re.sub(r'\s*\[.*?\]\s*$', '', product_name).strip()
+    
+    # Return cleaned name, or original if cleaning resulted in empty string
+    return cleaned if cleaned else product_name
+
 def generate_individual_google_maps_link(row) -> str:
     """Generate Google Maps link for a single establishment location"""
     # Skip if no valid address information
@@ -2871,7 +2882,8 @@ def main():
                         st.warning(f"⚠️ No manufacturing establishments were identified in the structured product label")
                         
                         # Product, Labeler, and NDC with same text size
-                        st.subheader(f"**Product:** {first_row['product_name']}")
+                        clean_product = clean_product_name(first_row['product_name'])
+                        st.subheader(f"**Product:** {clean_product}")
                         st.subheader(f"**Labeler:** {first_row['labeler_name']}")
                         st.subheader(f"**National Drug Code:** {first_row['ndc']}")
                         
@@ -2879,7 +2891,10 @@ def main():
                             spl_url = f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={first_row['spl_id']}"
                             st.markdown(f"📄 **Structured Product Label:** [View on DailyMed]({spl_url})")
                         
-                        st.info("💡 This product may not have detailed establishment information in its official documentation (~70% of products don't include manufacturing details).")
+                        st.info("""
+                        💡 This product may not have detailed establishment information in its official documentation.
+**Why this happens:** ~70% of products don't include manufacturing details. For example, companies may choose not to disclose proprietary manufacturing arrangements. This doesn't indicate any issues, it's simply a limitation of publicly available data.
+                        """)
                     
                     else:
                         # Full results with establishments

@@ -2894,9 +2894,11 @@ def main():
                                 with col1:
                                     # Show establishment name in content, not header
                                     if row['fei_number']:
-                                        st.write(f"**🔢 FDA Establishment Identifier:** {row['fei_number']}")
+                                        st.write(f"**🔢 FDA Establishment Identifier:** {row['fei_number']}",
+                                                 help="Unique number assigned by FDA to each manufacturing facility for tracking and inspection purposes")
                                     if row['duns_number']:
-                                        st.write(f"**🔢 Business Identifier:** {row['duns_number']}")
+                                        st.write(f"**🔢 Business Identifier:** {row['duns_number']}",
+                                        help="Unique 9-digit identifier assigned by Dun & Bradstreet to business entities")
                                     if row['firm_name'] and row['firm_name'] != 'Unknown':
                                         st.write(f"**🏢 Company Name:** {row['firm_name']}")
                                 

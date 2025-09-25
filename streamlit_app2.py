@@ -2469,14 +2469,10 @@ def clean_product_name(product_name: str) -> str:
     """Remove bracketed labeler information from product name"""
     if not product_name:
         return product_name
-    
-    st.write(f"DEBUG: Input: {product_name}")  # Add this
-    
+        
     # Remove text in brackets at the end: [LABELER NAME]
     cleaned = re.sub(r'\s*\[.*?\]\s*$', '', product_name).strip()
-    
-    st.write(f"DEBUG: Output: {cleaned}")  # Add this
-    
+        
     # Return cleaned name, or original if cleaning resulted in empty string
     return cleaned if cleaned else product_name
 

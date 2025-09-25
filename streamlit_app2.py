@@ -2981,6 +2981,13 @@ def main():
     Not for medical decisions, always consult a healthcare provider.<br>
     Reflects the views of the author and should not be construed to represent FDA's views or policies.
     
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("""
+    <div style="font-size: 0.8em;">
+    
     <b>📊 Data Sources to Verify Results:</b><br>
     • 🏥 <a href="https://dailymed.nlm.nih.gov/" target="_blank">DailyMed</a> - Product labels<br>
     • 🏭 <a href="https://www.fda.gov/drugs/drug-approvals-and-databases/drug-registration-and-listing-system" target="_blank">FDA Registry</a> - Establishments<br>
@@ -2990,11 +2997,12 @@ def main():
     """, unsafe_allow_html=True)
 
     if 'mapper' in st.session_state and st.session_state.mapper.database_loaded:
-        st.sidebar.markdown("""
-        <div style="font-size: 0.8em;">
-        <b>Database Status:</b>
-        </div>
-        """, unsafe_allow_html=True)
+        if st.session_state.mapper.database_date:
+            st.sidebar.markdown(f"""
+            <div style="font-size: 0.8em;">
+            <b>Database Date:</b> {st.session_state.mapper.database_date}
+            </div>
+            """, unsafe_allow_html=True)       
         st.sidebar.success("✅ Loaded and Ready")
 
 if __name__ == "__main__":

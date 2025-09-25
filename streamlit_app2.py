@@ -2974,12 +2974,16 @@ def main():
     This tool is provided for **informational and educational purposes only**. 
     
     - Information may not be complete or current
-    - Not intended for medical decision-making
-    - Does not replace consultation with healthcare providers
+    - Not intended for medical decision-making, always consult a pharmacist or doctor
     - Manufacturing locations may change over time
-    - Always consult your pharmacist or doctor for medication questions
+    - This app reflects the views of the author and should not be construed to represent FDA’s views or policies.
+    """)
     
-    Data sources: FDA databases, official product labeling, and establishment registrations.
+    st.sidebar.markdown("""
+    **📊 Data Sources to Verify Results:**
+    - 🏥 [NIH DailyMed Labeling](https://dailymed.nlm.nih.gov/) - Official product labels
+    - 🏭 [FDA Establishment Registration](https://www.fda.gov/drugs/drug-approvals-and-databases/drug-registration-and-listing-system) - Manufacturing facilities
+    - 🔍 [FDA Inspection Classification](https://www.fda.gov/inspections-compliance-enforcement-and-criminal-investigations/inspection-classification-database) - Compliance history
     """)
 
     if 'mapper' in st.session_state and st.session_state.mapper.database_loaded:

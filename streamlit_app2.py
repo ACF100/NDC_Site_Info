@@ -2959,48 +2959,35 @@ def main():
     
     # Sidebar info
     st.sidebar.title("About This Tool")
-    st.sidebar.markdown("""
-    <small>
-    
+    st.sidebar.caption("""
     🔍 **Look up your medication** in public FDA databases  
     📄 **Analyze official documents** for manufacturing info  
     🏭 **Find manufacturing facilities** worldwide  
     🌍 **Show locations** on maps  
     
     ~30% of medications have manufacturing location info in public data.
-    
-    </small>
-    """, unsafe_allow_html=True)
+    """)
     
     st.sidebar.markdown("---")
-    st.sidebar.markdown("""
-    <small>
-    
-    **⚠️ Important Disclaimer:**
-    For informational purposes only, may not be complete or current 
-    Not for medical decisions, always consult a healthcare provider 
-    Reflects the views of the author and should not be construed to represent FDA's views or policies
-    </small>
-    """, unsafe_allow_html=True)
+    st.sidebar.markdown("**⚠️ Important Disclaimer:**")
+    st.sidebar.caption("""
+    For informational purposes only, may not be complete or current. 
+    Not for medical decisions, always consult a healthcare provider. 
+    Reflects the views of the author and should not be construed to represent FDA's views or policies.
+    """)
     
     st.sidebar.markdown("---")
-    st.sidebar.markdown("""
-    <small>    
-    **📊 Data Sources to Verify Results:**
+    st.sidebar.caption("**📊 Data Sources to Verify Results:**")
+    st.sidebar.caption("""
     - 🏥 [DailyMed](https://dailymed.nlm.nih.gov/) - Product labels
     - 🏭 [FDA Registry](https://www.fda.gov/drugs/drug-approvals-and-databases/drug-registration-and-listing-system) - Establishments
     - 🔍 [FDA Inspections](https://www.fda.gov/inspections-compliance-enforcement-and-criminal-investigations/inspection-classification-database) - Compliance
-    
-    </small>
-    """, unsafe_allow_html=True)
+    """)
 
     if 'mapper' in st.session_state and st.session_state.mapper.database_loaded:
+        st.sidebar.markdown("---")
         if st.session_state.mapper.database_date:
-            st.sidebar.markdown(f"""
-            <small>
-            Database Date: {st.session_state.mapper.database_date}
-            </small>
-            """, unsafe_allow_html=True)       
+            st.sidebar.caption(f"**Database Date:** {st.session_state.mapper.database_date}")        
         st.sidebar.success("✅ Loaded and Ready")
 
 if __name__ == "__main__":

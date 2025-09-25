@@ -2863,6 +2863,8 @@ def main():
                         💡 This product may not have detailed establishment information in its official documentation.
 
 **Why this happens:** ~70% of products don't include manufacturing details. For example, companies may choose not to disclose proprietary manufacturing arrangements. This doesn't indicate any issues, it's simply a limitation of publicly available data.
+
+💡 Want to see an example with manufacturing details? Click the "Try An Example NDC" button above.
                         """)
                     
                     else:

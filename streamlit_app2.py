@@ -2886,12 +2886,13 @@ def main():
                         if map_fig:
                             st.plotly_chart(map_fig, use_container_width=True)
 
-                        # ADD THIS HELP SECTION HERE:
+                        # ADD THIS HIGHLIGHTED HELP SECTION HERE:
+                        st.info("💡 **New to these terms?** Expand below for definitions of technical terms used in the results.")
                         with st.expander("ℹ️ Understanding the Results", expanded=False):
                             st.markdown("""
                             **🔢 FDA Establishment Identifier (FEI):** Unique number assigned to each manufacturing facility for tracking and inspection purposes
                             
-                            **🔢 Business Identifier (DUNS):** 9-digit business identifier used in government databases
+                            **🔢 Business Identifier (DUNS):** 9-digit identifier assigned by Dun & Bradstreet (D&B) to businesses
                             
                             **⚙️ Manufacturing Operations:**
                             - **Manufacture:** Final drug product manufacturing
@@ -2899,11 +2900,14 @@ def main():
                             - **Analysis:** Quality control testing
                             - **Pack:** Packaging operations
                             - **Label:** Labeling operations
+                            - **Repack:** Repackaging operations - transferring to different containers
+                            - **Relabel:** Relabeling operations - applying new or updated labels  
+                            - **Sterilize:** Sterilization operations - ensuring products are sterile and safe
                             
                             **🔍 Inspection Classifications:**
-                            - **NAI (No Action Indicated):** Facility is compliant
-                            - **VAI (Voluntary Action Indicated):** Minor issues, voluntary correction
-                            - **OAI (Official Action Indicated):** Significant compliance issues requiring action
+                            - **No Action Indicated (NAI):** Facility is compliant with no actions needed
+                            - **Voluntary Action Indicated (VAI):** Facility is compliant with minor issues that need voluntary corrections
+                            - **Official Action Indicated (OAI):** Significant compliance issues requiring action. A past OAI is not an indicator of current compliance issues.
                             """)
                         
                         # Manufacturing establishments - header without address

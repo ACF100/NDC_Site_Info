@@ -2887,8 +2887,7 @@ def main():
                             st.plotly_chart(map_fig, use_container_width=True)
 
                         # ADD THIS HIGHLIGHTED HELP SECTION HERE:
-                        st.info("💡 **New to these terms?** Expand below for definitions of technical terms used in the results.")
-                        with st.expander("ℹ️ Understanding the Results", expanded=False):
+                        with st.expander("💡 **New to these terms?** Expand for explanations of technical terms.💡", expanded=False):
                             st.markdown("""
                             **🔢 FDA Establishment Identifier (FEI):** Unique number assigned to each manufacturing facility for tracking and inspection purposes
                             

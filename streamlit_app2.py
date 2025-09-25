@@ -2470,8 +2470,12 @@ def clean_product_name(product_name: str) -> str:
     if not product_name:
         return product_name
     
+    st.write(f"DEBUG: Input: {product_name}")  # Add this
+    
     # Remove text in brackets at the end: [LABELER NAME]
     cleaned = re.sub(r'\s*\[.*?\]\s*$', '', product_name).strip()
+    
+    st.write(f"DEBUG: Output: {cleaned}")  # Add this
     
     # Return cleaned name, or original if cleaning resulted in empty string
     return cleaned if cleaned else product_name
@@ -2923,7 +2927,7 @@ def main():
                             st.plotly_chart(map_fig, use_container_width=True)
 
                         # ADD THIS HIGHLIGHTED HELP SECTION HERE:
-                        with st.expander("💡 **New to these terms?** Expand for explanations of technical terms.💡", expanded=False):
+                        with st.expander("💡 **New to these terms?** Expand for explanations.💡", expanded=False):
                             st.markdown("""
                             **🔢 FDA Establishment Identifier (FEI):** Unique number assigned to each manufacturing facility for tracking and inspection purposes
                             

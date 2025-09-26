@@ -3035,7 +3035,7 @@ def main():
             <b>Database Date:</b> {st.session_state.mapper.database_date}
             </div>
             """, unsafe_allow_html=True)       
-        st.sidebar.success("✅ Loaded and Ready")
+        st.sidebar.success("✅ Loaded")
 
 if __name__ == "__main__":
     main()
